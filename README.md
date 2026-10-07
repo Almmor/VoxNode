@@ -70,7 +70,7 @@
 ### 2. 安装
 
 ```powershell
-git clone https://github.com/yourname/miiotpcapi.git
+git clone https://github.com/Almmor/miiotpcapi.git
 cd miiotpcapi
 
 # 建议使用虚拟环境

@@ -36,8 +36,9 @@ gui = ["PyQt6>=6.6"]
 dev = ["PyQt6>=6.6", "pytest>=8.0"]
 
 [project.urls]
-Repository = "https://github.com/yourname/miiotpcapi"
-"Bug Tracker" = "https://github.com/yourname/miiotpcapi/issues"
+Homepage = "https://github.com/Almmor/miiotpcapi"
+Repository = "https://github.com/Almmor/miiotpcapi"
+"Bug Tracker" = "https://github.com/Almmor/miiotpcapi/issues"
 
 [project.scripts]
 mipcb = "mipcb.app:run"
