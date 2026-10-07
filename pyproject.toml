@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "miiotpcapi"
+version = "0.1.0"
+description = "将 Windows 电脑接入小米生态的 Python 库与图形控制软件（MiPC Bridge / 小爱电脑管家）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "MiPC Bridge contributors" }]
+keywords = ["xiaomi", "miot", "xiaoai", "mina", "pc-control", "wol", "gui", "pyqt6"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+
+# 核心功能所需的运行时依赖
+dependencies = [
+    "psutil>=5.9",
+    "mss>=9.0",
+    "requests>=2.31",
+]
+
+# GUI 依赖单独成组，便于在无桌面环境（如服务器）中只装库
+[project.optional-dependencies]
+gui = ["PyQt6>=6.6"]
+dev = ["PyQt6>=6.6", "pytest>=8.0"]
+
+[project.urls]
+Repository = "https://github.com/yourname/miiotpcapi"
+"Bug Tracker" = "https://github.com/yourname/miiotpcapi/issues"
+
+[project.scripts]
+mipcb = "mipcb.app:run"
+
+[project.gui-scripts]
+mipcbw = "mipcb.app:run"
+
+[tool.setuptools]
+packages = ["miiotpcapi", "miiotpcapi.core", "miiotpcapi.xiaomi", "mipcb", "mipcb.pages"]
