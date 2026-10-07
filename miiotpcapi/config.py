@@ -145,19 +145,49 @@ DEFAULTS: dict[str, Any] = {
     "tasks": deepcopy(DEFAULT_TASKS),
     "apps": deepcopy(DEFAULT_APPS),
     "wol": [],
-    # 米家指令通道：用米家设备属性控制本机
+    # 米家指令通道：用米家设备属性控制本机（支持多属性组合编码）
     "mijia_channel": {
         "enabled": False,
         "poll_interval": 3.0,
         "device": {"did": "", "name": ""},
-        "prop": {"siid": 2, "piid": 1, "label": "开关"},
+        "props": [{"siid": 2, "piid": 1, "label": "开关"}],
         "mappings": [
             {"value": "1", "action": "shutdown", "params": {"delay": 60}, "reply": "电脑将在60秒后关机"},
             {"value": "0", "action": "lock", "params": {}, "reply": "已锁定电脑"},
         ],
-        "reset_value": None,
+        "reset": [],
+    },
+    # 手机网页遥控台
+    "remote": {
+        "enabled": False,
+        "port": 8765,
+        "bind": "0.0.0.0",
+        "token": "",
     },
 }
+
+
+def _migrate(data: dict) -> None:
+    """把旧版本的配置结构就地升级为新结构（在合并默认值之前调用）。"""
+    channel = data.get("mijia_channel")
+    if isinstance(channel, dict):
+        # 单属性 prop -> 多属性 props
+        legacy_prop = channel.get("prop")
+        if "props" not in channel and isinstance(legacy_prop, dict) \
+                and legacy_prop.get("siid") is not None:
+            channel["props"] = [legacy_prop]
+        channel.pop("prop", None)
+        # 单值 reset_value -> reset 列表
+        legacy_reset = channel.get("reset_value")
+        if "reset" not in channel and legacy_reset not in (None, ""):
+            first = (channel.get("props") or [{}])[0]
+            if first.get("siid") is not None:
+                channel["reset"] = [{
+                    "siid": first["siid"],
+                    "piid": first.get("piid", 1),
+                    "value": legacy_reset,
+                }]
+        channel.pop("reset_value", None)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -182,7 +212,12 @@ class Config:
         with self._lock:
             if self.path.is_file():
                 try:
-                    self._data = _deep_merge(deepcopy(DEFAULTS), json.loads(self.path.read_text("utf-8")))
+                    raw = json.loads(self.path.read_text("utf-8"))
+                    if isinstance(raw, dict):
+                        _migrate(raw)  # 升级旧结构后再与默认值合并
+                        self._data = _deep_merge(deepcopy(DEFAULTS), raw)
+                    else:
+                        self._data = deepcopy(DEFAULTS)
                     return
                 except Exception:
                     pass

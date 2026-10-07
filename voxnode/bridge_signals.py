@@ -25,6 +25,13 @@ class ChannelSignals(QObject):
     trigger = pyqtSignal(str, str, bool)   # 属性值, 说明, 是否成功
 
 
+class RemoteSignals(QObject):
+    """网页遥控台 → GUI 主线程的信号中继。"""
+
+    log = pyqtSignal(str)
+    state = pyqtSignal(bool)
+
+
 class OtpBridge(QObject):
     """跨线程请求用户输入验证码。
 

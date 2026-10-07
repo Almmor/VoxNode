@@ -10,7 +10,7 @@
 
 #define MyAppName "VoxNode"
 #define MyAppNameZh "声枢"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "VoxNode contributors"
 #define MyAppURL "https://github.com/Almmor/miiotpcapi"
 #define MyAppExeName "VoxNode.exe"

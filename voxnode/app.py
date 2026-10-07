@@ -7,11 +7,12 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from miiotpcapi import APP_NAME
 from miiotpcapi.config import Config
+from miiotpcapi.remote import RemoteServer
 from miiotpcapi.tasks import TaskExecutor
 from miiotpcapi.xiaomi.bridge import XiaoaiBridge
 from miiotpcapi.xiaomi.channel import MijiaChannel
 
-from .bridge_signals import BridgeSignals, ChannelSignals, OtpBridge, ask_otp
+from .bridge_signals import BridgeSignals, ChannelSignals, OtpBridge, RemoteSignals, ask_otp
 from .main_window import MainWindow, make_app_icon
 from .pages.mijia_page import make_miio
 from .theme import apply_theme
@@ -84,6 +85,35 @@ def _selftest() -> int:
         from miiotpcapi.xiaomi.qrlogin import XiaomiQrLogin  # noqa: F401
         lines.append("qrlogin=ok")
 
+        # 遥控台：真实起服务并验证鉴权
+        import json as _json
+        import urllib.error
+        import urllib.request
+
+        from miiotpcapi.remote import RemoteServer
+        from miiotpcapi.tasks import TaskExecutor as _TE
+        remote_cfg = Config(path=Path(tempfile.gettempdir()) / "voxnode_selftest_remote.json")
+        remote_cfg.set("remote.port", 8799, save=False)
+        rsrv = RemoteServer(remote_cfg, lambda: _TE())
+        assert rsrv.start(), "遥控台启动失败"
+        try:
+            base = "http://127.0.0.1:8799"
+            with urllib.request.urlopen(f"{base}/api/status?t={rsrv.token}", timeout=5) as r:
+                payload = _json.loads(r.read())
+            assert payload.get("ok"), payload
+            code = 0
+            try:
+                urllib.request.urlopen(f"{base}/api/status", timeout=5)
+            except urllib.error.HTTPError as e:
+                code = e.code
+            assert code == 401, f"无令牌应返回 401，实际 {code}"
+            with urllib.request.urlopen(f"{base}/?t={rsrv.token}", timeout=5) as r:
+                page = r.read().decode("utf-8")
+            assert "VoxNode" in page and "__TOKEN__" not in page
+            lines.append(f"remote=ok(host={payload.get('hostname')}, auth=401, page=ok)")
+        finally:
+            rsrv.stop()
+
         # 界面：主窗口各页 + 向导 5 页
         tmp_cfg = Path(tempfile.gettempdir()) / "voxnode_selftest_cfg.json"
         cfg = Config(path=tmp_cfg)
@@ -91,16 +121,21 @@ def _selftest() -> int:
         from miiotpcapi.xiaomi.bridge import XiaoaiBridge
         from miiotpcapi.xiaomi.channel import MijiaChannel
 
-        from .bridge_signals import BridgeSignals, ChannelSignals
+        from .bridge_signals import ChannelSignals, RemoteSignals
+        from .bridge_signals import BridgeSignals as _BS
         from .main_window import MainWindow
         from .wizard import SetupWizard
 
-        signals = BridgeSignals()
+        signals = _BS()
         chan_signals = ChannelSignals()
+        remote_signals = RemoteSignals()
         bridge = XiaoaiBridge(cfg)
         channel = MijiaChannel(cfg, lambda: TaskExecutor(), on_log=lambda m: None)
+        remote = RemoteServer(cfg, lambda: TaskExecutor(), on_log=lambda m: None)
         win = MainWindow(cfg, bridge, signals, channel=channel,
-                         channel_signals=chan_signals, start_minimized=True)
+                         channel_signals=chan_signals,
+                         remote=remote, remote_signals=remote_signals,
+                         start_minimized=True)
         for i in range(win.nav.count()):
             win.nav.setCurrentRow(i)
             app.processEvents()
@@ -113,8 +148,10 @@ def _selftest() -> int:
         lines.append(f"wizard_pages={len(ids)}")
         win.tray.hide()
         win.hide()
-        if tmp_cfg.exists():
-            tmp_cfg.unlink()
+        remote.stop()
+        for leftover in (tmp_cfg, remote_cfg.path):
+            if leftover.exists():
+                leftover.unlink()
         lines.append("RESULT=PASS")
     except Exception:
         ok = False
@@ -183,10 +220,18 @@ def run(argv: list[str] | None = None) -> int:
         on_trigger=lambda v, r, ok: channel_signals.trigger.emit(v, r, ok),
     )
 
+    remote_signals = RemoteSignals()
+    remote = RemoteServer(
+        config, executor_factory,
+        on_log=lambda m: remote_signals.log.emit(m),
+    )
+
     # 首次部署时先不显示主窗口，避免向导后面闪现
     start_minimized = bool(config.get("start_minimized", False)) or first_run
     window = MainWindow(config, bridge, signals, channel=channel,
-                        channel_signals=channel_signals, start_minimized=start_minimized)
+                        channel_signals=channel_signals,
+                        remote=remote, remote_signals=remote_signals,
+                        start_minimized=start_minimized)
     otp_bridge.parent_widget = window
     otp_bridge.setParent(window)
 
@@ -208,6 +253,7 @@ def run(argv: list[str] | None = None) -> int:
     window.stop_requested.connect(bridge.stop)
     app.aboutToQuit.connect(bridge.stop)
     app.aboutToQuit.connect(channel.stop)
+    app.aboutToQuit.connect(remote.stop)
 
     if need_setup:
         wizard = SetupWizard(config)

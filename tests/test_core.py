@@ -237,8 +237,9 @@ def test_miot_power_requires_account(config):
 def test_default_mijia_channel_config(config):
     channel = config.get("mijia_channel")
     assert channel["enabled"] is False
-    assert channel["prop"]["siid"] == 2
+    assert channel["props"][0]["siid"] == 2
     assert isinstance(channel["mappings"], list)
+    assert isinstance(channel["reset"], list)
 
 
 # -- 改名相关的向后兼容 -------------------------------------------------------
@@ -260,3 +261,104 @@ def test_secure_legacy_entropy_defined():
 
     assert secure._entropy == b"VoxNode-v1"
     assert secure._legacy_entropy == b"MiPCBridge-v1"
+
+
+# -- 指令通道：多属性组合编码 ---------------------------------------------------
+def test_values_match_multi():
+    from miiotpcapi.xiaomi.channel import values_key, values_match
+
+    assert values_match([1, 0], "1,0")
+    assert values_match([True, False], "on,off")
+    assert values_match([30], "30")
+    assert not values_match([1, 1], "1,0")
+    assert not values_match([1], "1,0")      # 段数不符
+    assert values_key([True, False, 30]) == "1,0,30"
+
+
+def test_normalize_props_compat():
+    from miiotpcapi.xiaomi.channel import normalize_props
+
+    assert normalize_props({"props": [{"siid": 2, "piid": 1}]}) == [{"siid": 2, "piid": 1}]
+    legacy = normalize_props({"prop": {"siid": 3, "piid": 1, "label": "x"}})
+    assert legacy and legacy[0]["siid"] == 3
+    assert normalize_props({}) == []
+
+
+def test_config_migrates_legacy_channel(tmp_path):
+    import json
+
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({
+        "mijia_channel": {"prop": {"siid": 4, "piid": 1, "label": "键"}, "reset_value": 0}
+    }), "utf-8")
+    ch = Config(path=p).get("mijia_channel")
+    assert ch["props"][0]["siid"] == 4
+    assert "prop" not in ch
+    assert ch["reset"][0]["value"] == 0
+    assert "reset_value" not in ch
+
+
+# -- 网页遥控台 ---------------------------------------------------------------
+def test_remote_defaults(config):
+    assert config.get("remote.enabled") is False
+    assert config.get("remote.port") == 8765
+    assert config.get("remote.token") == ""
+
+
+def test_remote_server_end_to_end(tmp_path):
+    import json
+    import urllib.error
+    import urllib.request
+
+    from miiotpcapi.remote import RemoteServer
+    from miiotpcapi.tasks import TaskExecutor
+
+    cfg = Config(path=tmp_path / "c.json")
+    cfg.set("remote.port", 8791, save=False)
+    srv = RemoteServer(cfg, lambda: TaskExecutor())
+    assert srv.token, "应自动生成访问令牌"
+    assert srv.start(), "遥控台应能在本机启动"
+    try:
+        base = "http://127.0.0.1:8791"
+
+        # 带令牌可读取状态
+        with urllib.request.urlopen(f"{base}/api/status?t={srv.token}", timeout=5) as r:
+            data = json.loads(r.read())
+        assert data["ok"] is True and data["hostname"]
+
+        # 不带令牌必须 401
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(f"{base}/api/status", timeout=5)
+        assert err.value.code == 401
+
+        # 错误令牌同样 401
+        with pytest.raises(urllib.error.HTTPError) as err2:
+            urllib.request.urlopen(f"{base}/api/status?t=wrong-token", timeout=5)
+        assert err2.value.code == 401
+
+        # 页面可渲染且令牌已注入
+        with urllib.request.urlopen(f"{base}/?t={srv.token}", timeout=5) as r:
+            page = r.read().decode("utf-8")
+        assert "VoxNode" in page
+        assert "__TOKEN__" not in page
+
+        def post(action: str) -> int:
+            req = urllib.request.Request(
+                f"{base}/api/action?t={srv.token}",
+                data=json.dumps({"action": action}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read())["ok"]
+
+        # 白名单外的动作被拒绝
+        try:
+            post("miot_power")
+            raise AssertionError("白名单外的动作应被拒绝")
+        except urllib.error.HTTPError as e:
+            assert e.code == 403
+
+        # 白名单内的动作可执行
+        assert post("report_status") is True
+    finally:
+        srv.stop()
