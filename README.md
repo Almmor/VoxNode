@@ -10,6 +10,7 @@
 | 电脑 → 米家 | 设备列表、开关、MIoT 属性读写、动作调用 |
 | 米家 → 电脑 | 把米家设备属性当作「指令通道」，轮询到变化就执行电脑动作 |
 | 音箱 → 电脑 | 轮询音箱对话，把语音指令映射为电脑操作并语音回执 |
+| 手机 → 电脑 | **Android App + PWA 网页遥控台**，手机直连电脑远程操作 |
 | 本机控制 | 电源、截屏、进程、系统监控、Wake-on-LAN |
 
 > 本项目为第三方开源工具，与小米公司无任何从属或合作关系，也不使用任何小米产品名称。
@@ -26,18 +27,58 @@
 
 ### 普通用户（推荐）
 
-从 [Releases](https://github.com/Almmor/miiotpcapi/releases) 下载 `VoxNode-Setup-x.y.z.exe` 并双击安装：
+从 [Releases](https://github.com/Almmor/miiotpcapi/releases) 下载并安装：
+
+| 平台 | 文件 | 说明 |
+|------|------|------|
+| Windows（电脑端） | `VoxNode-Setup-x.y.z.exe` | **必须安装**。按用户安装，无需管理员权限，简中界面 |
+| Android（手机端） | `VoxNode-Remote-x.y.z.apk` | 可选。手机遥控 App，详见 [手机遥控 App](#手机遥控-app) |
+| — | `VoxNode-x.y.z-portable.zip` | 电脑端免安装版，解压后直接运行 `VoxNode.exe` |
+
+Windows 端安装要点：
 
 - 按当前用户安装，**无需管理员权限**
-- 安装向导为简体中文，可自选「桌面快捷方式」与「开机自动启动」
+- 可自选「桌面快捷方式」与「开机自动启动」
 - 安装完成后勾选「立即启动」，**首次运行会自动进入引导式部署向导**
-- 卸载入口在「设置 → 应用」或开始菜单中，卸载会保留你的账号配置
-
-若不想安装，也可下载免安装版压缩包，解压后直接运行 `VoxNode.exe`。
+- 卸载会保留你的账号配置
 
 ### 从源码运行（开发者）
 
 见下方「快速开始」。
+
+---
+
+## 手机遥控 App
+
+除了在米家 App 里用场景按钮遥控，还提供两种手机端界面，**都直连你自己的电脑，不经过任何第三方服务器**：
+
+### 方式一：Android App（原生）
+
+下载 `VoxNode-Remote-x.y.z.apk` 安装，首次打开粘贴电脑上显示的访问地址即可。
+
+- 深色界面，实时显示 CPU / 内存 / C 盘与运行时长
+- 电源：锁屏 / 睡眠 / 休眠 / 注销 / 重启 / 关机 / 取消关机（危险操作二次确认）
+- 常用：截屏、系统状态、**查看电脑屏幕**
+- 音量与播放控制、打开电脑上已配置的应用、唤醒局域网内其他设备
+- 只需 `INTERNET` 权限；令牌保存在手机本地
+
+### 方式二：PWA（浏览器安装，iPhone 也能用）
+
+电脑端「遥控台」页启用服务后，用手机浏览器打开地址，在浏览器菜单里选**「添加到主屏幕」**，
+即可获得一个带图标的独立窗口应用（走 PWA 标准，**iOS Safari 同样支持**）。
+
+> 两种方式都需要手机与电脑在同一局域网。要在外网使用，请通过 VPN（如 Tailscale）接入，
+> 不要把端口直接映射到公网。
+
+### 自己编译 Android App
+
+```powershell
+powershell -ExecutionPolicy Bypass -File android\build-apk.ps1
+```
+
+需要 JDK 17+ 与 Android SDK（compileSdk 34）。脚本会自动探测环境、写入 `local.properties`、
+优先使用本地已缓存的 Gradle 发行版（避免从 services.gradle.org 下载），最后打印包名与签名信息。
+详细说明见 [BUILD.md](BUILD.md#9-构建-android-手机-app)。
 
 ---
 
@@ -63,11 +104,11 @@
 - 内置**米家 App 场景创建指引**：照着建手动场景，再添加到手机桌面就是遥控按钮
 - 动作涵盖关机 / 重启 / 锁屏 / 睡眠 / 截屏 / 语音播报 / 向其他电脑发送 Wake-on-LAN
 
-**手机网页遥控台**
+**手机遥控（App + PWA）**
 
-- 软件内置移动端网页界面，手机浏览器打开即可远程控制（无需安装 App）
-- 实时 CPU / 内存 / 磁盘，电源操作、截屏与**查看屏幕**、音量与播放、打开应用、WOL 唤醒
-- 默认关闭；随机访问令牌 + 动作白名单；外网建议走 VPN
+- **Android 原生 App**：深色界面、实时状态、电源 / 截屏 / 查看屏幕 / 音量播放 / 打开应用 / WOL
+- **PWA**：浏览器「添加到主屏幕」即得独立窗口应用，iPhone 也能用
+- 两者都直连电脑、不经过第三方服务器；随机令牌鉴权 + 动作白名单
 
 **音箱语音控制**
 
@@ -136,11 +177,12 @@ iot.mi.com 的正规接入要求**企业营业执照**；个人开发者通道�
 
 之后点一下手机桌面的场景按钮，就等于给这台电脑下了一条指令——**在外网也能用**，因为走的是米家云。
 
-### 路径二：用内置的「遥控台」网页界面（功能最全）
+### 路径二：用内置的「遥控台」+ 手机 App / PWA（功能最全）
 
-米家侧给不了自定义界面，所以软件自带一个移动端网页遥控台：
+米家侧给不了自定义界面，所以软件自带移动端遥控台，并提供两种打开方式：
 
-- 在「遥控台」页一键启用，把地址发到手机浏览器打开即可
+- **Android App**：安装 `VoxNode-Remote-*.apk`，粘贴电脑上的访问地址即可
+- **PWA**：手机浏览器打开地址 → 菜单「添加到主屏幕」，得到独立窗口应用（iPhone 也能用）
 - 界面：实时 CPU / 内存 / 磁盘、关机 / 重启 / 锁屏 / 休眠 / 注销 / 取消关机、
   截屏与**查看屏幕**、音量与播放控制、打开已配置的应用、唤醒局域网内其他电脑
 - 安全：默认关闭；所有请求必须携带随机生成的访问令牌；动作有白名单；
@@ -411,10 +453,17 @@ miiotpcapi/
 │   ├── make_icon.py            #   生成多尺寸 app.ico
 │   ├── version_info.txt        #   exe 版本资源
 │   └── languages/              #   安装器简体中文语言包
-├── tests/                      # pytest 单元测试
+├── android/                    # 手机遥控 App（Kotlin + Gradle）
+│   ├── build-apk.ps1           #   一键构建 APK
+│   ├── app/src/main/java/com/voxnode/remote/
+│   │   ├── MainActivity.kt     #   主界面与交互
+│   │   ├── Api.kt              #   直连电脑的 HTTP 客户端
+│   │   └── Prefs.kt            #   地址与令牌的本地存储
+│   └── tools/make_android_icons.py   # 生成各密度启动图标
+├── tests/                      # pytest 单元测试（含与 App 的接口契约测试）
 ├── requirements.txt
 ├── pyproject.toml
-├── BUILD.md                    # 打包成 exe / 安装程序的完整说明
+├── BUILD.md                    # 打包成 exe / 安装程序 / APK 的完整说明
 ├── LICENSE
 └── THIRD_PARTY_NOTICES.md
 ```
@@ -423,16 +472,16 @@ miiotpcapi/
 
 ## 打包与分发
 
-要把本项目打包成独立 exe 与 Windows 安装程序：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1
-```
+| 目标 | 命令 |
+|------|------|
+| Windows exe + 安装程序 | `powershell -ExecutionPolicy Bypass -File packaging\build.ps1` |
+| Android APK | `powershell -ExecutionPolicy Bypass -File android\build-apk.ps1` |
 
 产物：
 
 - `dist\VoxNode\` —— 免安装版目录（直接运行 `VoxNode.exe`）
 - `dist\VoxNode-Setup-<版本>.exe` —— 安装程序
+- `android\app\build\outputs\apk\release\app-release.apk` —— 手机 App
 
 构建流程、安装程序行为、体积优化与常见问题详见 **[BUILD.md](BUILD.md)**。
 

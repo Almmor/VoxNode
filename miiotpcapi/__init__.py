@@ -13,6 +13,6 @@
 详见 LICENSE 与 THIRD_PARTY_NOTICES.md。
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 APP_NAME = "VoxNode"
 APP_NAME_ZH = "声枢"

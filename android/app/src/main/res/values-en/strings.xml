@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VoxNode Remote</string>
+    <string name="connecting">Connecting…</string>
+
+    <string name="setup_title">Connect to your PC</string>
+    <string name="setup_hint">On your PC, open VoxNode → the "Remote" page, enable the service, then send the access link to this phone and paste it below. Both devices must be on the same LAN.</string>
+    <string name="setup_link_hint">Access link (contains token)</string>
+    <string name="btn_paste">Paste</string>
+    <string name="btn_connect">Connect &amp; save</string>
+    <string name="btn_settings">Settings</string>
+
+    <string name="stat_cpu">CPU</string>
+    <string name="stat_mem">Memory</string>
+    <string name="stat_disk">Disk C:</string>
+
+    <string name="sec_power">Power</string>
+    <string name="sec_common">Quick actions</string>
+    <string name="sec_media">Volume &amp; playback</string>
+    <string name="sec_apps">Launch apps</string>
+    <string name="sec_wol">Wake other devices</string>
+
+    <string name="act_lock">Lock</string>
+    <string name="act_sleep">Sleep</string>
+    <string name="act_cancel">Cancel</string>
+    <string name="act_hibernate">Hibernate</string>
+    <string name="act_signout">Sign out</string>
+    <string name="act_restart">Restart</string>
+    <string name="act_shutdown">Shut down (60s)</string>
+    <string name="act_screenshot">Screenshot</string>
+    <string name="act_status">Status</string>
+    <string name="act_view_screen">View screen</string>
+    <string name="act_vol_down">Vol −</string>
+    <string name="act_mute">Mute</string>
+    <string name="act_vol_up">Vol ＋</string>
+    <string name="act_prev">Previous</string>
+    <string name="act_play_pause">Play/Pause</string>
+    <string name="act_next">Next</string>
+
+    <string name="empty_apps">No apps configured on the PC</string>
+    <string name="empty_wol">No wake targets configured</string>
+
+    <string name="footer">The token is stored locally and only used to access your own PC.\nUse it on a LAN; for remote access prefer a VPN.</string>
+
+    <string name="dlg_confirm_title">Confirm</string>
+    <string name="dlg_confirm_msg">Run "%1$s"?</string>
+    <string name="dlg_ok">OK</string>
+    <string name="dlg_cancel">Cancel</string>
+    <string name="dlg_close">Close</string>
+
+    <string name="msg_need_link">Paste the access link shown on your PC first</string>
+    <string name="msg_link_invalid">Invalid link, expected something like http://192.168.1.5:8765/?t=xxxx</string>
+    <string name="msg_connecting">Connecting to your PC…</string>
+    <string name="msg_connected">Connected</string>
+    <string name="msg_connect_failed">Connection failed: %1$s</string>
+    <string name="msg_no_clipboard">Clipboard is empty</string>
+    <string name="msg_offline">Cannot reach the PC. Check the service is enabled and on the same LAN.</string>
+    <string name="msg_screenshot_failed">Failed to get screenshot: %1$s</string>
+</resources>

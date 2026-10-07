@@ -25,6 +25,18 @@ class TaskResult:
     detail: str = ""
 
 
+# 音量 / 媒体指令词表（供执行与测试共用，避免魔法字符串散落）
+VOLUME_OPS = {
+    "大": "volume_up", "加": "volume_up", "高": "volume_up",
+    "小": "volume_down", "减": "volume_down", "低": "volume_down",
+    "静音": "mute", "取消静音": "mute",
+}
+MEDIA_OPS = {
+    "暂停": "play_pause", "继续": "play_pause", "播放": "play_pause",
+    "下一首": "next_track", "上一首": "prev_track",
+}
+
+
 @dataclass
 class MatchedTask:
     rule: dict[str, Any]
@@ -163,10 +175,7 @@ class TaskExecutor:
 
     def _do_volume(self, g: dict) -> TaskResult:
         op = g.get("op", "")
-        mapping = {"大": "volume_up", "加": "volume_up", "高": "volume_up",
-                   "小": "volume_down", "减": "volume_down", "低": "volume_down",
-                   "静音": "mute", "取消静音": "mute"}
-        fn = mapping.get(op)
+        fn = VOLUME_OPS.get(op)
         if not fn:
             return TaskResult(False, f"听不懂音量指令：{op}")
         inputctl.ACTIONS[fn]()
@@ -174,9 +183,7 @@ class TaskExecutor:
 
     def _do_media(self, g: dict) -> TaskResult:
         op = g.get("op", "")
-        mapping = {"暂停": "play_pause", "继续": "play_pause", "播放": "play_pause",
-                   "下一首": "next_track", "上一首": "prev_track"}
-        fn = mapping.get(op)
+        fn = MEDIA_OPS.get(op)
         if not fn:
             return TaskResult(False, f"听不懂播放指令：{op}")
         inputctl.ACTIONS[fn]()

@@ -100,7 +100,7 @@ dist\VoxNode\VoxNode.exe --selftest
 
 ```powershell
 # 静默安装（不建桌面图标、不开机自启）
-.\VoxNode-Setup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /MERGETASKS=!desktopicon,!autostart
+.\VoxNode-Setup-0.4.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /MERGETASKS=!desktopicon,!autostart
 
 # 静默卸载
 & "$env:LOCALAPPDATA\Programs\VoxNode\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
@@ -160,16 +160,94 @@ PyInstaller 单文件/目录产物被启发式误报较常见，属行业普遍�
 
 ---
 
-## 9. 相关文件
+## 9. 构建 Android 手机 App
+
+手机 App 是一份标准的 Gradle 工程，位于 `android/`。
+
+### 前置条件
+
+| 组件 | 要求 | 说明 |
+|------|------|------|
+| JDK | 17 或更高（需含 `javac`） | 注意：只有 JRE 不够 |
+| Android SDK | 含 `platforms/android-34` 与 `build-tools` | 通过 Android Studio 安装，或设置 `ANDROID_HOME` |
+| Gradle | 无需单独安装 | 优先用本机 `~/.gradle/wrapper/dists` 里已缓存的发行版；否则用 wrapper 下载 8.5 |
+
+### 一键构建
+
+```powershell
+# 在仓库根目录执行
+powershell -ExecutionPolicy Bypass -File android\build-apk.ps1
+
+# 可选参数
+-Python <path>    # 顺带重新生成各密度启动图标
+-Debug            # 构建 debug 版
+-Offline          # 强制离线（只用本地 Gradle 缓存）
+```
+
+脚本会依次：探测 JDK 与 Android SDK → 写 `local.properties` → 编译 `assembleRelease`
+→ 打印包名 / 版本 / 权限 / 签名信息。产物在
+`android/app/build/outputs/apk/release/app-release.apk`。
+
+### 手动构建
+
+```powershell
+$env:JAVA_HOME = "<你的 JDK 路径>"
+cd android
+.\gradlew.bat :app:assembleRelease
+```
+
+### 网络受限环境
+
+本工程的仓库已优先配置**阿里云镜像**（`maven.aliyun.com` 的 google / public / gradle-plugin），
+在 Maven Central、Google Maven 或 `services.gradle.org` 不可达时依然可以构建：
+
+- 依赖解析：走阿里云镜像
+- Gradle 发行版：优先使用本地已缓存的 `~/.gradle/wrapper/dists`；
+  若需下载，可把 `android/gradle/wrapper/gradle-wrapper.properties` 的 `distributionUrl`
+  换成 `https://mirrors.cloud.tencent.com/gradle/gradle-8.5-bin.zip`
+
+### 签名说明
+
+`android/keystore/voxnode.jks` 是**随仓库公开的测试用签名**（口令 `voxnode`），
+目的是让任何人都能复现签名一致的 APK、便于覆盖升级。**请勿用于正式上架**；
+若要正式发布，请自行生成密钥并替换 `android/app/build.gradle.kts` 中的 `signingConfigs`。
+
+### App 的接口契约
+
+App 只调用电脑端遥控台的四个接口：`/api/status`、`/api/config`、`/api/screenshot`、`/api/action`。
+两端的动作名与参数由 `tests/test_core.py` 中的
+`ANDROID_APP_CALLS` 契约测试守护，改动任意一端都会被测到。
+
+---
+
+## 10. 相关文件
 
 ```
 packaging/
 ├── build.ps1                    # 一键构建脚本
-├── voxnode.spec                   # PyInstaller 配置（隐藏导入、排除项、图标、版本信息）
+├── voxnode.spec                 # PyInstaller 配置（隐藏导入、排除项、图标、版本信息）
 ├── installer.iss                # Inno Setup 安装脚本
 ├── make_icon.py                 # 生成多尺寸 app.ico
 ├── version_info.txt             # exe 版本资源（产品名、版权等）
 ├── app.ico                      # 应用图标（由 make_icon.py 生成，已提交便于直接构建）
 └── languages/
     └── ChineseSimplified.isl    # Inno Setup 简体中文语言包（取自 jrsoftware/issrc）
+```
+
+Android 手机 App：
+
+```
+android/
+├── build-apk.ps1                # 一键构建 APK（自动探测 JDK / SDK / Gradle）
+├── settings.gradle.kts          # 仓库配置（优先阿里云镜像）
+├── build.gradle.kts             # AGP 8.2.2 + Kotlin 1.9.20
+├── gradle/wrapper/              # Gradle Wrapper（8.5）
+├── keystore/voxnode.jks         # 公开的测试签名（口令 voxnode）
+├── tools/make_android_icons.py  # 生成各密度启动图标
+└── app/
+    ├── build.gradle.kts         # compileSdk 34 / minSdk 24 / 签名配置
+    └── src/main/
+        ├── AndroidManifest.xml
+        ├── java/com/voxnode/remote/{MainActivity,Api,Prefs}.kt
+        └── res/                 # 布局、深色主题、图标
 ```

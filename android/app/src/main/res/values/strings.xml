@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VoxNode 遥控</string>
+    <string name="connecting">连接中…</string>
+
+    <string name="setup_title">连接你的电脑</string>
+    <string name="setup_hint">在电脑上打开 VoxNode →「遥控台」页启用服务，复制那一串访问地址发到手机，粘贴到下面即可。手机需与电脑在同一局域网。</string>
+    <string name="setup_link_hint">访问地址（含令牌）</string>
+    <string name="btn_paste">粘贴</string>
+    <string name="btn_connect">连接并保存</string>
+    <string name="btn_settings">设置</string>
+
+    <string name="stat_cpu">CPU</string>
+    <string name="stat_mem">内存</string>
+    <string name="stat_disk">C 盘</string>
+
+    <string name="sec_power">电源</string>
+    <string name="sec_common">常用</string>
+    <string name="sec_media">音量与播放</string>
+    <string name="sec_apps">打开应用</string>
+    <string name="sec_wol">唤醒其他设备</string>
+
+    <string name="act_lock">锁屏</string>
+    <string name="act_sleep">睡眠</string>
+    <string name="act_cancel">取消关机</string>
+    <string name="act_hibernate">休眠</string>
+    <string name="act_signout">注销</string>
+    <string name="act_restart">重启</string>
+    <string name="act_shutdown">关机（60 秒）</string>
+    <string name="act_screenshot">截屏</string>
+    <string name="act_status">系统状态</string>
+    <string name="act_view_screen">查看屏幕</string>
+    <string name="act_vol_down">音量 −</string>
+    <string name="act_mute">静音</string>
+    <string name="act_vol_up">音量 ＋</string>
+    <string name="act_prev">上一首</string>
+    <string name="act_play_pause">播放/暂停</string>
+    <string name="act_next">下一首</string>
+
+    <string name="empty_apps">尚未在电脑上配置应用</string>
+    <string name="empty_wol">尚未配置唤醒目标</string>
+
+    <string name="footer">令牌已保存在本机，仅用于访问你自己的电脑。\n建议只在局域网使用，外网请通过 VPN 接入。</string>
+
+    <string name="dlg_confirm_title">确认操作</string>
+    <string name="dlg_confirm_msg">确定要执行「%1$s」吗？</string>
+    <string name="dlg_ok">确定</string>
+    <string name="dlg_cancel">取消</string>
+    <string name="dlg_close">关闭</string>
+
+    <string name="msg_need_link">请先粘贴电脑上显示的访问地址</string>
+    <string name="msg_link_invalid">地址格式不对，应形如 http://192.168.1.5:8765/?t=xxxx</string>
+    <string name="msg_connecting">正在连接电脑…</string>
+    <string name="msg_connected">连接成功</string>
+    <string name="msg_connect_failed">连接失败：%1$s</string>
+    <string name="msg_no_clipboard">剪贴板里没有文本</string>
+    <string name="msg_offline">连接不上电脑，请确认服务已启用且在同一局域网</string>
+    <string name="msg_screenshot_failed">获取截图失败：%1$s</string>
+</resources>

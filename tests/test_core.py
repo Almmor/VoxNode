@@ -362,3 +362,152 @@ def test_remote_server_end_to_end(tmp_path):
         assert post("report_status") is True
     finally:
         srv.stop()
+
+
+# -- 与 Android App 的接口契约 --------------------------------------------------
+# 这里列出的动作与参数必须与 android/app/src/main/java/com/voxnode/remote/
+# MainActivity.kt 中实际发送的请求保持一致，避免两端漂移。
+ANDROID_APP_CALLS = [
+    ("lock", {}),
+    ("sleep", {}),
+    ("cancel_shutdown", {}),
+    ("hibernate", {}),
+    ("signout", {}),
+    ("restart", {"delay": 60}),
+    ("shutdown", {"delay": 60}),
+    ("screenshot", {}),
+    ("report_status", {}),
+    ("volume", {"op": "减"}),
+    ("volume", {"op": "静音"}),
+    ("volume", {"op": "加"}),
+    ("media", {"op": "上一首"}),
+    ("media", {"op": "暂停"}),
+    ("media", {"op": "下一首"}),
+    ("open_app", {"app": "记事本"}),
+    ("wol", {"host": "客厅台式机"}),
+]
+
+
+def test_android_app_actions_are_allowed():
+    from miiotpcapi.remote import ALLOWED_ACTIONS
+
+    for action, _params in ANDROID_APP_CALLS:
+        assert action in ALLOWED_ACTIONS, f"手机 App 用了白名单外的动作：{action}"
+
+
+def test_android_app_action_params_are_understood():
+    """校验 App 传的参数能被电脑端解析。
+
+    注意：这里**绝不执行**关机 / 锁屏 / 休眠 / 注销等动作，
+    只做「动作已注册 + 参数键正确 + 取值在允许集合内」的静态校验，
+    避免跑测试时把开发机自己关掉。
+    """
+    from miiotpcapi.tasks import ACTIONS, MEDIA_OPS, VOLUME_OPS
+
+    for action, params in ANDROID_APP_CALLS:
+        assert action in ACTIONS, f"动作未实现：{action}"
+        if action in ("shutdown", "restart"):
+            assert "delay" in params
+        elif action == "volume":
+            assert params.get("op") in VOLUME_OPS, f"音量指令未支持：{params}"
+        elif action == "media":
+            assert params.get("op") in MEDIA_OPS, f"媒体指令未支持：{params}"
+        elif action == "open_app":
+            assert params.get("app")
+        elif action == "wol":
+            assert params.get("host")
+
+
+def test_safe_actions_actually_run():
+    """只跑完全无副作用的动作，确认执行链路通畅。"""
+    from miiotpcapi.tasks import MatchedTask, TaskExecutor
+
+    executor = TaskExecutor()
+    result = executor.execute(MatchedTask(rule={"action": "report_status"}, groups={}))
+    assert result.ok and result.reply
+
+
+def test_android_app_endpoints_exist(tmp_path):
+    """App 调用的三个读取接口都要能正常返回。"""
+    import json
+    import urllib.request
+
+    from miiotpcapi.remote import RemoteServer
+    from miiotpcapi.tasks import TaskExecutor
+
+    cfg = Config(path=tmp_path / "c.json")
+    cfg.set("remote.port", 8792, save=False)
+    srv = RemoteServer(cfg, lambda: TaskExecutor())
+    assert srv.start()
+    try:
+        for path, key in [("/api/status", "hostname"), ("/api/config", "apps")]:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:8792{path}?t={srv.token}", timeout=5) as r:
+                data = json.loads(r.read())
+            assert key in data, f"{path} 缺少字段 {key}"
+        # 截图接口：没有截图时返回 404、有则返回图片，两者都不能崩
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:8792/api/screenshot?t={srv.token}", timeout=5) as r:
+                assert r.status == 200
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+    finally:
+        srv.stop()
+
+
+# -- PWA（把网页遥控台装成 App）--------------------------------------------------
+def test_pwa_manifest_and_assets(tmp_path):
+    import json
+    import urllib.error
+    import urllib.request
+
+    from miiotpcapi.remote import RemoteServer
+    from miiotpcapi.tasks import TaskExecutor
+
+    cfg = Config(path=tmp_path / "c.json")
+    cfg.set("remote.port", 8793, save=False)
+    srv = RemoteServer(cfg, lambda: TaskExecutor())
+    assert srv.start()
+    base = "http://127.0.0.1:8793"
+    try:
+        # manifest：可安装所必需的字段
+        with urllib.request.urlopen(
+                f"{base}/manifest.webmanifest?t={srv.token}", timeout=5) as r:
+            assert "manifest+json" in r.headers["Content-Type"]
+            manifest = json.loads(r.read())
+        assert manifest["name"] and manifest["short_name"]
+        assert manifest["display"] == "standalone"
+        assert manifest["start_url"].endswith(f"t={srv.token}")   # 从桌面图标启动即已鉴权
+        sizes = {i["sizes"] for i in manifest["icons"]}
+        assert {"192x192", "512x512"} <= sizes
+
+        # 图标：必须是合法 PNG
+        for path in ("/icon-192.png", "/icon-512.png"):
+            with urllib.request.urlopen(f"{base}{path}?t={srv.token}", timeout=5) as r:
+                data = r.read()
+            assert data[:8] == b"\x89PNG\r\n\x1a\n", f"{path} 不是 PNG"
+            assert len(data) > 300
+
+        # Service Worker：必须注册 fetch 事件才算可安装
+        with urllib.request.urlopen(f"{base}/sw.js", timeout=5) as r:
+            sw = r.read().decode("utf-8")
+            assert "javascript" in r.headers["Content-Type"]
+        assert "addEventListener('fetch'" in sw
+
+        # 页面里要有 PWA 相关的 meta / link 与 SW 注册
+        with urllib.request.urlopen(f"{base}/?t={srv.token}", timeout=5) as r:
+            page = r.read().decode("utf-8")
+        for needle in ("manifest.webmanifest", "apple-touch-icon",
+                       "apple-mobile-web-app-capable", "serviceWorker"):
+            assert needle in page, f"页面缺少 {needle}"
+
+        # 图标与 manifest 需要令牌，避免被局域网内其他人探测
+        for path in ("/icon-192.png", "/manifest.webmanifest"):
+            try:
+                urllib.request.urlopen(f"{base}{path}", timeout=5)
+                raise AssertionError(f"{path} 无令牌时应拒绝")
+            except urllib.error.HTTPError as e:
+                assert e.code == 401
+    finally:
+        srv.stop()

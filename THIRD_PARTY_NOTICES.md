@@ -88,12 +88,25 @@ SOFTWARE.
 
 ## 运行时依赖
 
+### 电脑端（Windows）
+
 | 依赖 | 许可证 |
 |------|--------|
 | PyQt6 | GPL-3.0（作为独立进程使用的动态链接不受其传染；如需闭源分发请评估或改用 PySide6/LGPL） |
 | psutil | BSD-3-Clause |
 | mss | MIT |
 | requests | Apache-2.0 |
+
+### 手机端（Android）
+
+| 依赖 | 许可证 |
+|------|--------|
+| AndroidX（appcompat / core-ktx / constraintlayout） | Apache-2.0 |
+| Material Components for Android | Apache-2.0 |
+| Kotlin 标准库 | Apache-2.0 |
+
+手机 App 不使用任何第三方网络库或分析 SDK，仅用系统自带的 `HttpURLConnection` 与 `org.json`，
+且只申请 `INTERNET` / `ACCESS_NETWORK_STATE` 两项权限。
 
 > 说明：PyQt6 以 GPL-3.0 授权，本项目自身代码为 MIT。若你计划闭源分发本软件，
 > 请将 GUI 依赖替换为 LGPL 授权的 PySide6，或遵循 PyQt6 的 GPL 条款。详见 README「许可证」一节。

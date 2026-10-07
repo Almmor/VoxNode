@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#14161A</color>
+    <color name="card">#22262E</color>
+    <color name="card_pressed">#282D36</color>
+    <color name="border">#2E333D</color>
+    <color name="text">#E8EAED</color>
+    <color name="muted">#9AA0AA</color>
+    <color name="accent">#FF6900</color>
+    <color name="accent_dark">#E65C00</color>
+    <color name="accent_ripple">#33FF6900</color>
+    <color name="danger">#E5484D</color>
+    <color name="danger_ripple">#33E5484D</color>
+    <color name="track">#1A1D23</color>
+    <color name="white">#FFFFFF</color>
+</resources>

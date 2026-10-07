@@ -80,6 +80,26 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/favicon.ico":
             self._send(204, b"", "image/x-icon")
             return
+        # PWA 资源：manifest 与 Service Worker 不带令牌也可获取（不含敏感信息），
+        # 但图标仅在有令牌时提供，避免被别人探测到这台机器。
+        if path == "/manifest.webmanifest":
+            if not self._token_ok(query):
+                self._send(401, _http_ok({"error": "访问令牌无效"}))
+                return
+            self._send(200, _http_ok(self.app.manifest_json()),
+                       "application/manifest+json; charset=utf-8")
+            return
+        if path == "/sw.js":
+            self._send(200, self.app.service_worker_js().encode("utf-8"),
+                       "application/javascript; charset=utf-8")
+            return
+        if path in ("/icon-192.png", "/icon-512.png"):
+            if not self._token_ok(query):
+                self._send(401, _http_ok({"error": "访问令牌无效"}))
+                return
+            size = 192 if path == "/icon-192.png" else 512
+            self._send(200, self.app.icon_png(size), "image/png")
+            return
         if not self._token_ok(query):
             self._send(401, _http_ok({"error": "访问令牌无效，请使用软件「遥控台」页显示的完整链接"}))
             return
@@ -156,6 +176,7 @@ class RemoteServer:
         self._server: Optional[_Server] = None
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        self._icon_cache: dict[int, bytes] = {}
         self.ensure_token()
 
     # -- 令牌 ----------------------------------------------------------
@@ -269,6 +290,56 @@ class RemoteServer:
     def page_html(self) -> str:
         return _PAGE.replace("__TOKEN__", self.token)
 
+    # -- PWA 资源 ------------------------------------------------------
+    def icon_png(self, size: int) -> bytes:
+        """按需绘制并缓存图标（Qt 离屏绘制，不需要显示器）。"""
+        cached = self._icon_cache.get(size)
+        if cached is None:
+            from .branding import render_png
+            cached = render_png(size, rounded=False)
+            self._icon_cache[size] = cached
+        return cached
+
+    def manifest_json(self) -> dict:
+        """PWA manifest。start_url 带上令牌，从桌面图标启动即可直接可用。"""
+        return {
+            "name": "VoxNode 遥控台",
+            "short_name": "VoxNode",
+            "description": "远程控制这台电脑：电源、截屏、音量、应用与唤醒",
+            "start_url": f"/?t={self.token}",
+            "scope": "/",
+            "display": "standalone",
+            "orientation": "portrait",
+            "background_color": "#14161a",
+            "theme_color": "#14161a",
+            "icons": [
+                {"src": f"/icon-192.png?t={self.token}", "sizes": "192x192",
+                 "type": "image/png", "purpose": "any maskable"},
+                {"src": f"/icon-512.png?t={self.token}", "sizes": "512x512",
+                 "type": "image/png", "purpose": "any maskable"},
+            ],
+        }
+
+    @staticmethod
+    def service_worker_js() -> str:
+        """最小可用的 Service Worker。
+
+        只为满足「可安装」条件并接管网络请求；遥控指令属于实时操作，
+        不做离线缓存（离线时点了也没用，不如如实报错）。
+        """
+        return """// VoxNode 遥控台 Service Worker
+self.addEventListener('install', function (e) { self.skipWaiting(); });
+self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });
+self.addEventListener('fetch', function (e) {
+  e.respondWith(fetch(e.request).catch(function () {
+    return new Response(JSON.stringify({ ok: false, error: '离线：连不上电脑' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' }
+    });
+  }));
+});
+"""
+
 
 # ---------------------------------------------------------------- 移动端页面
 _PAGE = """<!DOCTYPE html>
@@ -278,6 +349,12 @@ _PAGE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#14161a">
 <title>VoxNode 遥控台</title>
+<link rel="manifest" href="/manifest.webmanifest?t=__TOKEN__">
+<link rel="icon" href="/icon-192.png?t=__TOKEN__">
+<link rel="apple-touch-icon" href="/icon-192.png?t=__TOKEN__">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VoxNode">
 <style>
   :root{
     --bg:#14161a; --card:#22262e; --card2:#282d36; --border:#2e333d;
@@ -366,7 +443,8 @@ _PAGE = """<!DOCTYPE html>
 
   <div class="foot">
     令牌已内置于当前链接，请勿转发给他人<br>
-    离开内网使用请通过 VPN 访问，不要直接把端口映射到公网
+    离开内网使用请通过 VPN 访问，不要直接把端口映射到公网<br>
+    想当 App 用？浏览器菜单里选「添加到主屏幕」即可
   </div>
 
   <div id="toast"></div>
@@ -446,6 +524,13 @@ async function loadConfig(){
 
 refresh(); loadConfig();
 setInterval(refresh, 3000);
+
+// 注册 Service Worker，使页面可被「添加到主屏幕」当成 App 使用
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function () {});
+  });
+}
 </script>
 </body>
 </html>
