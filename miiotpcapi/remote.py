@@ -198,6 +198,12 @@ class RemoteServer:
 
     @property
     def port(self) -> int:
+        """已启动时返回真实监听端口；配置为 0 时由系统分配，避免端口冲突。"""
+        if self._server is not None:
+            try:
+                return int(self._server.server_address[1])
+            except (IndexError, TypeError):
+                pass
         return int(self.config.get("remote.port", 8765))
 
     @property
@@ -266,10 +272,42 @@ class RemoteServer:
             return {"ok": False, "error": str(e)}
 
     def client_config(self) -> dict:
-        """页面初始化用：可点的应用、唤醒目标、音量/媒体指令等。"""
+        """手机端 / 网页初始化用：可点的应用、唤醒目标与本机网卡信息。
+
+        提供本机网卡的 MAC 与子网广播地址，手机 App 可以直接据此建立
+        「唤醒这台电脑」的条目 —— 即使电脑关机、服务没在运行，
+        手机也能自己发魔术包把它开起来。
+        """
+        targets = []
+        for host in self.config.get("wol", []) or []:
+            if not host.get("name"):
+                continue
+            try:
+                port = int(host.get("port", 9) or 9)
+            except (TypeError, ValueError):
+                port = 9
+            targets.append({
+                "name": host["name"],
+                "mac": host.get("mac", ""),
+                "ip": host.get("ip", "255.255.255.255") or "255.255.255.255",
+                "port": port,
+            })
+
+        macs = []
+        for itf in sysinfo.interfaces():
+            if itf.get("mac"):
+                macs.append({
+                    "name": itf.get("name", ""),
+                    "ipv4": itf.get("ipv4", ""),
+                    "mac": itf["mac"],
+                    "broadcast": itf.get("broadcast", ""),
+                })
+
         return {
             "apps": [a.get("name", "") for a in self.config.get("apps", []) if a.get("name")],
-            "wol": [h.get("name", "") for h in self.config.get("wol", []) if h.get("name")],
+            "wol": [t["name"] for t in targets],   # 兼容仍按名称使用该字段的调用方
+            "wol_targets": targets,
+            "macs": macs,
             "host": sysinfo.hostname(),
         }
 
@@ -383,6 +421,13 @@ _PAGE = """<!DOCTYPE html>
   button.danger{border-color:var(--danger);color:var(--danger)}
   button.danger:active{background:var(--danger);color:#fff}
   .empty{color:var(--muted);font-size:12px}
+  .nic{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:11px;margin-bottom:8px}
+  .nic .nname{font-size:12px;color:var(--muted);margin-bottom:7px}
+  .nic code{display:inline-block;font-family:ui-monospace,Consolas,monospace;font-size:12px;
+    background:#1a1d23;border:1px solid var(--border);border-radius:7px;
+    padding:5px 9px;margin:0 8px 2px 0;color:var(--text)}
+  .note{color:var(--muted);font-size:11px;line-height:1.7;margin-top:8px}
   #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(80px);
     background:#2b313b;border:1px solid var(--border);color:var(--text);
     padding:11px 18px;border-radius:11px;font-size:13px;max-width:86vw;text-align:center;
@@ -438,8 +483,13 @@ _PAGE = """<!DOCTYPE html>
   <h2>打开应用</h2>
   <div class="grid two" id="apps"><div class="empty">加载中…</div></div>
 
-  <h2>唤醒其他设备（WOL）</h2>
+  <h2>本机网卡（用手机 App 唤醒这台电脑）</h2>
+  <div id="wolself" class="empty">加载中…</div>
+  <div class="note">浏览器没法自己发 WOL 魔术包，所以这里给出唤醒这台电脑所需的 MAC 与广播地址：点一下即可复制，填进 VoxNode 手机 App（或任意 WOL 工具），电脑关机时也能唤醒它。</div>
+
+  <h2>让电脑代发唤醒（其他设备）</h2>
   <div class="grid two" id="wol"><div class="empty">加载中…</div></div>
+  <div class="note">这一组由电脑代发，需要电脑处于开机状态。要唤醒「已关机」的电脑，请用上面的 MAC 配合手机 App。</div>
 
   <div class="foot">
     令牌已内置于当前链接，请勿转发给他人<br>
@@ -514,11 +564,52 @@ function fill(container, items, key, action, emptyText){
   });
 }
 
+function copyText(text, okMsg){
+  if(!text) return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(
+      function(){ toast(okMsg); },
+      function(){ toast("复制失败，请长按选择"); }
+    );
+  }else{
+    toast("复制失败，请长按选择");
+  }
+}
+
+/** 列出本机网卡：MAC 与广播地址可点击复制，供手机 App 唤醒这台电脑。 */
+function fillWolSelf(macs){
+  const box = document.getElementById("wolself");
+  box.innerHTML = "";
+  if(!macs || !macs.length){
+    box.className = "empty"; box.textContent = "未读取到网卡信息";
+    return;
+  }
+  box.className = "";
+  macs.forEach(function(nic){
+    const card = document.createElement("div");
+    card.className = "nic";
+    const title = document.createElement("div");
+    title.className = "nname";
+    title.textContent = (nic.name || "网卡") + (nic.ipv4 ? " · " + nic.ipv4 : "");
+    card.appendChild(title);
+    const mac = document.createElement("code");
+    mac.textContent = nic.mac;
+    mac.onclick = function(){ copyText(nic.mac, "MAC 已复制"); };
+    card.appendChild(mac);
+    const bc = document.createElement("code");
+    bc.textContent = nic.broadcast || "255.255.255.255";
+    bc.onclick = function(){ copyText(bc.textContent, "广播地址已复制"); };
+    card.appendChild(bc);
+    box.appendChild(card);
+  });
+}
+
 async function loadConfig(){
   try{
     const d = await (await fetch("/api/config" + q)).json();
     fill(document.getElementById("apps"), d.apps, "app", "open_app", "尚未在软件里配置应用");
     fill(document.getElementById("wol"), d.wol, "host", "wol", "尚未配置唤醒目标");
+    fillWolSelf(d.macs);
   }catch(e){}
 }
 

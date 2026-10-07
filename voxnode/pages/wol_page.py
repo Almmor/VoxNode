@@ -119,9 +119,19 @@ class WolPage(QFrame):
     def _refresh_local(self) -> None:
         parts = []
         for itf in sysinfo.interfaces():
-            if itf["mac"]:
-                parts.append(f"{itf['name']}：{itf['mac']}" + (f"（{itf['ipv4']}）" if itf["ipv4"] else ""))
-        self.local_info.setText("本机网卡 MAC：\n" + ("\n".join(parts) if parts else "（未读取到）"))
+            if not itf["mac"]:
+                continue
+            detail = []
+            if itf.get("ipv4"):
+                detail.append(itf["ipv4"])
+            if itf.get("broadcast"):
+                detail.append(f"广播 {itf['broadcast']}")
+            suffix = f"（{'，'.join(detail)}）" if detail else ""
+            parts.append(f"{itf['name']}：{itf['mac']}{suffix}")
+        self.local_info.setText(
+            "本机网卡 MAC 与广播地址（在手机 App 里「添加设备」可用这两项唤醒本机）：\n"
+            + ("\n".join(parts) if parts else "（未读取到）")
+        )
         armed = wol.wake_armed_devices()
         self._armed_label.setText("当前允许唤醒本机的设备：\n" + ("\n".join(armed) if armed else "（无——如需远程唤醒本机，请在设备管理器中开启）"))
 

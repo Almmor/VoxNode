@@ -93,11 +93,11 @@ def _selftest() -> int:
         from miiotpcapi.remote import RemoteServer
         from miiotpcapi.tasks import TaskExecutor as _TE
         remote_cfg = Config(path=Path(tempfile.gettempdir()) / "voxnode_selftest_remote.json")
-        remote_cfg.set("remote.port", 8799, save=False)
+        remote_cfg.set("remote.port", 0, save=False)      # 端口交给系统分配，避免被占用
         rsrv = RemoteServer(remote_cfg, lambda: _TE())
         assert rsrv.start(), "遥控台启动失败"
         try:
-            base = "http://127.0.0.1:8799"
+            base = f"http://127.0.0.1:{rsrv.port}"
             with urllib.request.urlopen(f"{base}/api/status?t={rsrv.token}", timeout=5) as r:
                 payload = _json.loads(r.read())
             assert payload.get("ok"), payload
@@ -110,7 +110,14 @@ def _selftest() -> int:
             with urllib.request.urlopen(f"{base}/?t={rsrv.token}", timeout=5) as r:
                 page = r.read().decode("utf-8")
             assert "VoxNode" in page and "__TOKEN__" not in page
-            lines.append(f"remote=ok(host={payload.get('hostname')}, auth=401, page=ok)")
+            # 手机 App 靠这两组数据建立本地唤醒设备
+            with urllib.request.urlopen(f"{base}/api/config?t={rsrv.token}", timeout=5) as r:
+                cfg_payload = _json.loads(r.read())
+            assert "wol_targets" in cfg_payload and "macs" in cfg_payload, cfg_payload.keys()
+            lines.append(
+                f"remote=ok(host={payload.get('hostname')}, auth=401, page=ok, "
+                f"nics={len(cfg_payload['macs'])})"
+            )
         finally:
             rsrv.stop()
 

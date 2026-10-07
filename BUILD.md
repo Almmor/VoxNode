@@ -100,7 +100,7 @@ dist\VoxNode\VoxNode.exe --selftest
 
 ```powershell
 # 静默安装（不建桌面图标、不开机自启）
-.\VoxNode-Setup-0.4.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /MERGETASKS=!desktopicon,!autostart
+.\VoxNode-Setup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /MERGETASKS=!desktopicon,!autostart
 
 # 静默卸载
 & "$env:LOCALAPPDATA\Programs\VoxNode\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
@@ -179,9 +179,9 @@ PyInstaller 单文件/目录产物被启发式误报较常见，属行业普遍�
 powershell -ExecutionPolicy Bypass -File android\build-apk.ps1
 
 # 可选参数
--Python <path>    # 顺带重新生成各密度启动图标
--Debug            # 构建 debug 版
--Offline          # 强制离线（只用本地 Gradle 缓存）
+-Python <path>      # 顺带重新生成各密度启动图标
+-DebugBuild         # 构建 debug 版
+-Offline            # 强制离线（只用本地 Gradle 缓存）
 ```
 
 脚本会依次：探测 JDK 与 Android SDK → 写 `local.properties` → 编译 `assembleRelease`
@@ -215,8 +215,19 @@ cd android
 ### App 的接口契约
 
 App 只调用电脑端遥控台的四个接口：`/api/status`、`/api/config`、`/api/screenshot`、`/api/action`。
-两端的动作名与参数由 `tests/test_core.py` 中的
-`ANDROID_APP_CALLS` 契约测试守护，改动任意一端都会被测到。
+
+`tests/test_core.py` 里有一组契约测试守护两端一致性，改动任意一端都会被测到：
+
+| 测试 | 守护什么 |
+|------|----------|
+| `ANDROID_APP_CALLS` | 动作名与参数取值（音量 / 媒体等），以及动作必须在白名单内 |
+| `test_android_app_reads_the_config_fields_we_send` | `/api/config` 返回的 `wol_targets`、`macs` 与 App 解析的字段名一致 |
+| `test_android_magic_packet_recipe_matches_desktop` | 手机与电脑的 WOL 魔术包配方一致（6 字节 `0xFF` + MAC × 16 = 102 字节） |
+| `test_android_wol_targets_are_stored_locally` | 唤醒设备列表存在手机本地，换服务器时不被清掉 |
+
+**唤醒（WOL）为什么要放在手机端做**：电脑关机后 VoxNode 服务也随之停止，无法替手机转发唤醒包。
+所以 App 自己开 UDP socket 广播魔术包，并只在 `AndroidManifest.xml` 里额外申请
+`ACCESS_WIFI_STATE` 与 `CHANGE_WIFI_MULTICAST_STATE`（部分机型会拦广播，需短暂持组播锁）。
 
 ---
 

@@ -262,20 +262,52 @@
             <TextView android:id="@+id/txtAppsEmpty" style="@style/VoxNode.Empty"
                 android:text="@string/empty_apps" />
             <LinearLayout android:id="@+id/boxApps" style="@style/VoxNode.Row" />
+        </LinearLayout>
 
-            <TextView style="@style/VoxNode.Section" android:text="@string/sec_wol" />
-            <TextView android:id="@+id/txtWolEmpty" style="@style/VoxNode.Empty"
-                android:text="@string/empty_wol" />
-            <LinearLayout android:id="@+id/boxWol" style="@style/VoxNode.Row" />
+        <!-- ============ 唤醒电脑（WOL）：电脑关机也一直可用 ============ -->
+        <LinearLayout
+            android:id="@+id/wolSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:orientation="vertical">
 
             <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:gravity="center"
-                android:text="@string/footer"
-                android:textColor="@color/muted"
-                android:textSize="11sp" />
+                style="@style/VoxNode.Section"
+                android:layout_marginTop="0dp"
+                android:text="@string/sec_wol_phone" />
+
+            <TextView
+                style="@style/VoxNode.Empty"
+                android:text="@string/wol_hint_phone" />
+
+            <TextView
+                android:id="@+id/txtWolEmpty"
+                style="@style/VoxNode.Empty"
+                android:text="@string/empty_wol_phone" />
+
+            <LinearLayout
+                android:id="@+id/boxWol"
+                style="@style/VoxNode.Row" />
+
+            <LinearLayout style="@style/VoxNode.Row">
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAddWol"
+                    style="@style/Widget.VoxNode.Button.Primary"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/btn_add_wol" />
+            </LinearLayout>
         </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            android:text="@string/footer"
+            android:textColor="@color/muted"
+            android:textSize="11sp" />
     </LinearLayout>
 </ScrollView>

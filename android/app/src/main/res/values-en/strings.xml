@@ -18,7 +18,6 @@
     <string name="sec_common">Quick actions</string>
     <string name="sec_media">Volume &amp; playback</string>
     <string name="sec_apps">Launch apps</string>
-    <string name="sec_wol">Wake other devices</string>
 
     <string name="act_lock">Lock</string>
     <string name="act_sleep">Sleep</string>
@@ -38,7 +37,37 @@
     <string name="act_next">Next</string>
 
     <string name="empty_apps">No apps configured on the PC</string>
-    <string name="empty_wol">No wake targets configured</string>
+
+    <!-- Phone-side WOL: works regardless of whether the PC is powered on -->
+    <string name="sec_wol_phone">Wake your PC (WOL)</string>
+    <string name="wol_hint_phone">Works even while the PC is off: the phone broadcasts the magic packet itself, so the PC service does not need to be running. Tap a device to wake it; long-press to edit or delete.</string>
+    <string name="empty_wol_phone">No wake devices yet. Tap “＋ Add device” below to enter a MAC manually, or connect to the PC first to auto-detect its network adapter.</string>
+    <string name="btn_add_wol">＋ Add device</string>
+
+    <string name="dlg_wol_add_title">Add wake device</string>
+    <string name="dlg_wol_edit_title">Edit wake device</string>
+    <string name="field_wol_name">Name (e.g. My PC)</string>
+    <string name="field_wol_mac">MAC address (AA:BB:CC:DD:EE:FF)</string>
+    <string name="field_wol_bcast">Broadcast (optional, default 255.255.255.255)</string>
+    <string name="field_wol_port">Port (default 9)</string>
+    <string name="wol_detected_label">Tap to auto-fill the PC network adapter:</string>
+    <string name="wol_no_detected">Connect to the PC to list its adapters for one-tap fill-in</string>
+    <string name="wol_actions_title">“%1$s”</string>
+    <string name="wol_act_wake">Wake now</string>
+    <string name="wol_act_edit">Edit</string>
+    <string name="wol_act_delete">Delete</string>
+    <string name="wol_default_pc_name">My PC</string>
+    <string name="dlg_save">Save</string>
+
+    <string name="msg_wol_sending">Broadcasting magic packet…</string>
+    <string name="msg_wol_sent">Magic packet sent to “%1$s”\n%2$s</string>
+    <string name="msg_wol_failed">Failed to send magic packet: %1$s</string>
+    <string name="msg_wol_need_name">Please enter a device name</string>
+    <string name="msg_wol_need_mac">Please enter a MAC address</string>
+    <string name="msg_wol_bad_mac">Invalid MAC address, expected AA:BB:CC:DD:EE:FF</string>
+    <string name="msg_wol_saved">Saved “%1$s”</string>
+    <string name="msg_wol_deleted">Deleted “%1$s”</string>
+    <string name="msg_wol_imported">Auto-detected and added %1$d wake device(s)</string>
 
     <string name="footer">The token is stored locally and only used to access your own PC.\nUse it on a LAN; for remote access prefer a VPN.</string>
 

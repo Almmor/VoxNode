@@ -18,7 +18,8 @@
     <string name="sec_common">常用</string>
     <string name="sec_media">音量与播放</string>
     <string name="sec_apps">打开应用</string>
-    <string name="sec_wol">唤醒其他设备</string>
+
+    <!-- 手机侧 WOL：不依赖电脑是否开机，始终可用 -->
 
     <string name="act_lock">锁屏</string>
     <string name="act_sleep">睡眠</string>
@@ -38,7 +39,37 @@
     <string name="act_next">下一首</string>
 
     <string name="empty_apps">尚未在电脑上配置应用</string>
-    <string name="empty_wol">尚未配置唤醒目标</string>
+
+    <!-- 手机侧 WOL：不依赖电脑是否开机，始终可用 -->
+    <string name="sec_wol_phone">唤醒电脑（WOL）</string>
+    <string name="wol_hint_phone">电脑关机时也能用：唤醒包由手机直接广播出去，不需要电脑端服务在线。点设备名唤醒，长按可编辑或删除。</string>
+    <string name="empty_wol_phone">还没有可唤醒的设备。点下面「添加设备」手动填 MAC，或先连接电脑自动识别它的网卡。</string>
+    <string name="btn_add_wol">＋ 添加设备</string>
+
+    <string name="dlg_wol_add_title">添加唤醒设备</string>
+    <string name="dlg_wol_edit_title">编辑唤醒设备</string>
+    <string name="field_wol_name">名称（如：我的电脑）</string>
+    <string name="field_wol_mac">MAC 地址（AA:BB:CC:DD:EE:FF）</string>
+    <string name="field_wol_bcast">广播地址（可留空，默认 255.255.255.255）</string>
+    <string name="field_wol_port">端口（默认 9）</string>
+    <string name="wol_detected_label">点一下自动填入电脑网卡：</string>
+    <string name="wol_no_detected">连接电脑后会显示它的网卡，可一键填入</string>
+    <string name="wol_actions_title">「%1$s」</string>
+    <string name="wol_act_wake">立即唤醒</string>
+    <string name="wol_act_edit">编辑</string>
+    <string name="wol_act_delete">删除</string>
+    <string name="wol_default_pc_name">我的电脑</string>
+    <string name="dlg_save">保存</string>
+
+    <string name="msg_wol_sending">正在广播唤醒包…</string>
+    <string name="msg_wol_sent">已向「%1$s」发送唤醒包\n%2$s</string>
+    <string name="msg_wol_failed">唤醒包发送失败：%1$s</string>
+    <string name="msg_wol_need_name">请填写设备名称</string>
+    <string name="msg_wol_need_mac">请填写 MAC 地址</string>
+    <string name="msg_wol_bad_mac">MAC 地址格式不对，应形如 AA:BB:CC:DD:EE:FF</string>
+    <string name="msg_wol_saved">已保存「%1$s」</string>
+    <string name="msg_wol_deleted">已删除「%1$s」</string>
+    <string name="msg_wol_imported">已自动识别并添加 %1$d 台可唤醒设备</string>
 
     <string name="footer">令牌已保存在本机，仅用于访问你自己的电脑。\n建议只在局域网使用，外网请通过 VPN 接入。</string>
 

@@ -314,12 +314,12 @@ def test_remote_server_end_to_end(tmp_path):
     from miiotpcapi.tasks import TaskExecutor
 
     cfg = Config(path=tmp_path / "c.json")
-    cfg.set("remote.port", 8791, save=False)
+    cfg.set("remote.port", 0, save=False)      # 交给系统分配，避免测试机端口被别的程序占住
     srv = RemoteServer(cfg, lambda: TaskExecutor())
     assert srv.token, "应自动生成访问令牌"
     assert srv.start(), "遥控台应能在本机启动"
     try:
-        base = "http://127.0.0.1:8791"
+        base = f"http://127.0.0.1:{srv.port}"
 
         # 带令牌可读取状态
         with urllib.request.urlopen(f"{base}/api/status?t={srv.token}", timeout=5) as r:
@@ -436,19 +436,18 @@ def test_android_app_endpoints_exist(tmp_path):
     from miiotpcapi.tasks import TaskExecutor
 
     cfg = Config(path=tmp_path / "c.json")
-    cfg.set("remote.port", 8792, save=False)
+    cfg.set("remote.port", 0, save=False)
     srv = RemoteServer(cfg, lambda: TaskExecutor())
     assert srv.start()
+    base = f"http://127.0.0.1:{srv.port}"
     try:
         for path, key in [("/api/status", "hostname"), ("/api/config", "apps")]:
-            with urllib.request.urlopen(
-                    f"http://127.0.0.1:8792{path}?t={srv.token}", timeout=5) as r:
+            with urllib.request.urlopen(f"{base}{path}?t={srv.token}", timeout=5) as r:
                 data = json.loads(r.read())
             assert key in data, f"{path} 缺少字段 {key}"
         # 截图接口：没有截图时返回 404、有则返回图片，两者都不能崩
         try:
-            with urllib.request.urlopen(
-                    f"http://127.0.0.1:8792/api/screenshot?t={srv.token}", timeout=5) as r:
+            with urllib.request.urlopen(f"{base}/api/screenshot?t={srv.token}", timeout=5) as r:
                 assert r.status == 200
         except urllib.error.HTTPError as e:
             assert e.code == 404
@@ -466,10 +465,10 @@ def test_pwa_manifest_and_assets(tmp_path):
     from miiotpcapi.tasks import TaskExecutor
 
     cfg = Config(path=tmp_path / "c.json")
-    cfg.set("remote.port", 8793, save=False)
+    cfg.set("remote.port", 0, save=False)
     srv = RemoteServer(cfg, lambda: TaskExecutor())
     assert srv.start()
-    base = "http://127.0.0.1:8793"
+    base = f"http://127.0.0.1:{srv.port}"
     try:
         # manifest：可安装所必需的字段
         with urllib.request.urlopen(
@@ -511,3 +510,226 @@ def test_pwa_manifest_and_assets(tmp_path):
                 assert e.code == 401
     finally:
         srv.stop()
+
+
+# -- 手机通过 MAC 唤醒电脑（WOL）------------------------------------------------
+def test_broadcast_address_math():
+    # /24
+    assert sysinfo.broadcast_address("192.168.1.5", "255.255.255.0") == "192.168.1.255"
+    # /16
+    assert sysinfo.broadcast_address("10.1.2.3", "255.255.0.0") == "10.1.255.255"
+    # 非整字节掩码也要算对
+    assert sysinfo.broadcast_address("192.168.0.130", "255.255.255.128") == "192.168.0.255"
+    # 信息不全或非法时返回空串，绝不抛异常
+    assert sysinfo.broadcast_address("", "255.255.255.0") == ""
+    assert sysinfo.broadcast_address("192.168.1.5", "") == ""
+    assert sysinfo.broadcast_address("不是IP", "255.255.255.0") == ""
+
+
+def test_interfaces_expose_wol_fields():
+    for itf in sysinfo.interfaces():
+        for key in ("name", "ipv4", "netmask", "broadcast", "mac", "up"):
+            assert key in itf, f"网卡信息缺少 {key}"
+        if itf["ipv4"] and itf["netmask"]:
+            # 有 IP 就必须能算出广播地址，手机端才能定向唤醒
+            assert itf["broadcast"]
+
+
+def test_desktop_magic_packet_bytes(monkeypatch):
+    """真实抓一次电脑端发出的魔术包，确认是标准的 102 字节格式。"""
+    captured: dict = {}
+
+    class FakeSocket:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def setsockopt(self, *args):
+            pass
+
+        def sendto(self, data, addr):
+            captured["data"] = data
+            captured["addr"] = addr
+
+    monkeypatch.setattr(wol.socket, "socket", lambda *a, **k: FakeSocket())
+    wol.send("aa-bb-cc-dd-ee-ff", "192.168.1.255", 9)
+
+    data = captured["data"]
+    assert len(data) == 102                          # 6 + 16 × 6
+    assert data[:6] == b"\xff" * 6
+    assert data[6:] == bytes.fromhex("AABBCCDDEEFF") * 16
+    assert captured["addr"] == ("192.168.1.255", 9)
+
+
+def test_client_config_carries_wol_targets_and_macs(config):
+    """手机 App 靠这两组数据建立「本地唤醒设备」，字段名不能随意改。"""
+    from miiotpcapi.remote import RemoteServer
+
+    config.set("wol", [{
+        "name": "客厅台式机", "mac": "AA:BB:CC:DD:EE:FF",
+        "ip": "192.168.1.255", "port": 9,
+    }])
+    srv = RemoteServer(config, lambda: TaskExecutor())
+    cfg = srv.client_config()
+
+    assert cfg["host"]
+    assert cfg["wol"] == ["客厅台式机"]              # 旧字段保持兼容
+    assert cfg["wol_targets"] == [{
+        "name": "客厅台式机", "mac": "AA:BB:CC:DD:EE:FF",
+        "ip": "192.168.1.255", "port": 9,
+    }]
+    for nic in cfg["macs"]:
+        for key in ("name", "ipv4", "mac", "broadcast"):
+            assert key in nic
+
+
+def test_client_config_tolerates_broken_wol_entries(config):
+    """脏配置不能把接口带崩：缺名称的丢弃，端口非法回退到 9。"""
+    from miiotpcapi.remote import RemoteServer
+
+    config.set("wol", [
+        {"mac": "AA:BB:CC:DD:EE:FF"},                                  # 没有名称 → 丢弃
+        {"name": "坏端口", "mac": "11:22:33:44:55:66", "port": "abc"},
+    ])
+    srv = RemoteServer(config, lambda: TaskExecutor())
+    targets = srv.client_config()["wol_targets"]
+
+    assert [t["name"] for t in targets] == ["坏端口"]
+    assert targets[0]["port"] == 9
+    assert targets[0]["ip"] == "255.255.255.255"    # 缺省广播地址
+
+
+def test_pwa_offers_local_mac_for_phone_wol(tmp_path):
+    """网页遥控台要给出本机 MAC / 广播地址，供手机 App 唤醒这台电脑。"""
+    import urllib.request
+
+    from miiotpcapi.remote import RemoteServer
+
+    cfg = Config(path=tmp_path / "c.json")
+    cfg.set("remote.port", 0, save=False)
+    srv = RemoteServer(cfg, lambda: TaskExecutor())
+    assert srv.start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{srv.port}/?t={srv.token}", timeout=5) as r:
+            page = r.read().decode("utf-8")
+        assert 'id="wolself"' in page, "页面缺少承载本机网卡信息的容器"
+        assert "fillWolSelf" in page, "页面缺少渲染网卡信息的逻辑"
+        assert "广播地址已复制" in page, "网卡信息应可点击复制"
+        # 要如实说明：浏览器发不了魔术包，唤醒得靠手机 App
+        assert "浏览器没法自己发 WOL 魔术包" in page
+    finally:
+        srv.stop()
+
+
+# -- 与 Android App 的 WOL 契约 -----------------------------------------------
+ANDROID_MAIN = Path(__file__).resolve().parents[1] / "android" / "app" / "src" / "main"
+
+
+def _android_text(*parts: str) -> str:
+    return ANDROID_MAIN.joinpath(*parts).read_text(encoding="utf-8")
+
+
+def test_android_app_reads_the_config_fields_we_send(config):
+    """App 解析的字段名必须与 client_config() 输出一致，否则唤醒列表会是空的。"""
+    from miiotpcapi.remote import RemoteServer
+
+    kotlin = _android_text("java", "com", "voxnode", "remote", "MainActivity.kt")
+    keys = RemoteServer(config, lambda: TaskExecutor()).client_config()
+
+    for field in ("wol_targets", "macs"):
+        assert field in keys, f"client_config 不再返回 {field}"
+        assert f'"{field}"' in kotlin, f"手机 App 没有读取 {field}"
+
+
+def test_android_wol_does_not_depend_on_the_pc():
+    """唤醒包必须由手机自己发出：电脑关机时它没法替手机转发。"""
+    wol_kt = _android_text("java", "com", "voxnode", "remote", "Wol.kt")
+
+    assert "DatagramSocket" in wol_kt, "手机端应自己开 UDP socket 发送魔术包"
+    assert "broadcast = true" in wol_kt
+    assert "255.255.255.255" in wol_kt
+
+    manifest = _android_text("AndroidManifest.xml")
+    assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
+    assert "ACCESS_WIFI_STATE" in manifest
+
+
+def test_android_magic_packet_recipe_matches_desktop():
+    """两端配方必须一致：6 字节 0xFF + MAC 重复 16 次，共 102 字节。"""
+    wol_kt = _android_text("java", "com", "voxnode", "remote", "Wol.kt")
+
+    assert "ByteArray(6 + 16 * 6)" in wol_kt
+    assert "for (i in 0 until 6) packet[i] = 0xFF.toByte()" in wol_kt
+    assert "for (round in 0 until 16)" in wol_kt
+    assert "System.arraycopy(macBytes, 0, packet, 6 + round * 6, 6)" in wol_kt
+
+
+def test_android_wol_targets_are_stored_locally():
+    """唤醒列表要落在手机本地，电脑连不上时也能用。"""
+    prefs = _android_text("java", "com", "voxnode", "remote", "Prefs.kt")
+
+    assert "wol_targets" in prefs
+    assert "saveWolTargets" in prefs and "wolTargets" in prefs
+    assert "wol_imported" in prefs, "要记住自动加过的 MAC，用户删掉后不该复活"
+    assert "clearServer" in prefs, "换服务器时不能连唤醒设备一起清掉"
+
+
+def test_android_parses_both_targets_and_nics():
+    api_side = _android_text("java", "com", "voxnode", "remote", "MainActivity.kt")
+    assert "parseNics" in api_side
+    assert "parseTargets" in api_side
+    assert "importWolDevices" in api_side
+
+    wol_kt = _android_text("java", "com", "voxnode", "remote", "Wol.kt")
+    assert "parseNics" in wol_kt and "parseTargets" in wol_kt
+
+
+# -- Android 资源一致性 ---------------------------------------------------------
+ANDROID_RES = ANDROID_MAIN / "res"
+
+
+def _string_names(relative: str) -> set[str]:
+    import re
+
+    text = ANDROID_RES.joinpath(*relative.split("/")).read_text(encoding="utf-8")
+    return set(re.findall(r'<string name="([^"]+)"', text))
+
+
+def test_android_string_resources_stay_in_sync():
+    """默认文案（中文）与 en 翻译必须一一对应。
+
+    少一条翻译只是回退到默认文案，但**多**一条会让 lint 以 ExtraTranslation
+    把 release 构建直接判为失败（0.5.0 开发中真的踩过），所以这里守住两端完全对齐。
+    """
+    default = _string_names("values/strings.xml")
+    english = _string_names("values-en/strings.xml")
+
+    extra = sorted(english - default)
+    missing = sorted(default - english)
+    assert not extra, f"en 多出这些键，会让 release 构建失败：{extra}"
+    assert not missing, f"en 缺少这些键的翻译：{missing}"
+
+
+def test_android_wol_strings_exist_and_are_referenced():
+    """新增的 WOL 文案必须真实存在，且确实被布局或代码引用（避免写了没用）。"""
+    names = _string_names("values/strings.xml")
+    for key in ("sec_wol_phone", "wol_hint_phone", "empty_wol_phone", "btn_add_wol"):
+        assert key in names, f"缺少文案 {key}"
+
+    layout = _android_text("res", "layout", "activity_main.xml")
+    for key in ("sec_wol_phone", "wol_hint_phone", "empty_wol_phone", "btn_add_wol"):
+        assert f"@string/{key}" in layout, f"布局没有引用 {key}"
+
+    # 唤醒列表必须始终可见（不能藏在 controlPanel 里，否则电脑关机时点不到）
+    panel_start = layout.index('android:id="@+id/controlPanel"')
+    wol_start = layout.index('android:id="@+id/wolSection"')
+    # wolSection 出现在 controlPanel 的闭合之后
+    control_close = layout.rindex("</LinearLayout>", panel_start, wol_start)
+    assert panel_start < control_close < wol_start, "wolSection 必须在 controlPanel 之外"
+
+

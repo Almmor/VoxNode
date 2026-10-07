@@ -26,6 +26,9 @@ import java.util.concurrent.Executors
  * 只依赖电脑端 VoxNode 的「遥控台」HTTP 接口，因此：
  *  - 不需要在手机上登录小米账号
  *  - 不经过任何第三方服务器，手机直连你自己的电脑
+ *
+ * 唤醒（WOL）是例外：电脑关机时服务并不可用，所以唤醒包由手机自己广播，
+ * 相关设备列表保存在手机本地，与能否连上电脑无关。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -48,6 +51,12 @@ class MainActivity : AppCompatActivity() {
     private var api: Api? = null
     private var refreshing = false
     private var configLoaded = false
+
+    /** 电脑上报的网卡，用于「一键填入本机 MAC」。 */
+    private var detectedNics: List<DetectedNic> = emptyList()
+
+    /** 电脑主机名，用作自动添加的设备名称。 */
+    private var serverHost = ""
 
     private val handler = Handler(Looper.getMainLooper())
     private val pool = Executors.newFixedThreadPool(4)
@@ -91,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btnPaste).setOnClickListener { pasteFromClipboard() }
         findViewById<MaterialButton>(R.id.btnConnect).setOnClickListener { connect() }
         findViewById<MaterialButton>(R.id.btnSettings).setOnClickListener { showSetup(Prefs.baseUrl(this)) }
+        findViewById<MaterialButton>(R.id.btnAddWol).setOnClickListener { showWolDialog(null) }
 
         wireAction(R.id.btnLock, "lock")
         wireAction(R.id.btnSleep, "sleep")
@@ -108,6 +118,9 @@ class MainActivity : AppCompatActivity() {
         wireAction(R.id.btnPrev, "media", JSONObject().put("op", "上一首"))
         wireAction(R.id.btnPlayPause, "media", JSONObject().put("op", "暂停"))
         wireAction(R.id.btnNext, "media", JSONObject().put("op", "下一首"))
+
+        // 唤醒列表来自手机本地存储：电脑关机（还没连上）时同样要能看到并可用
+        buildWolButtons()
 
         val saved = Prefs.baseUrl(this)
         val token = Prefs.token(this)
@@ -237,14 +250,18 @@ class MainActivity : AppCompatActivity() {
         try {
             val cfg = client.clientConfig()
             val apps = toStringList(cfg.optJSONArray("apps"))
-            val wol = toStringList(cfg.optJSONArray("wol"))
+            val nics = Wol.parseNics(cfg.optJSONArray("macs"))
+            val serverTargets = Wol.parseTargets(cfg.optJSONArray("wol_targets"))
+            val host = cfg.optString("host", "")
             runOnUiThread {
+                serverHost = host
+                detectedNics = nics
                 buildButtons(boxApps, txtAppsEmpty, apps) { name ->
                     doAction("open_app", JSONObject().put("app", name))
                 }
-                buildButtons(boxWol, txtWolEmpty, wol) { name ->
-                    doAction("wol", JSONObject().put("host", name))
-                }
+                val added = importWolDevices(host, nics, serverTargets)
+                buildWolButtons()
+                if (added > 0) toast(getString(R.string.msg_wol_imported, added))
             }
         } catch (e: Exception) {
             // 动态列表加载失败不影响主要功能
@@ -277,13 +294,7 @@ class MainActivity : AppCompatActivity() {
         var row: LinearLayout? = null
         items.forEachIndexed { index, name ->
             if (index % 3 == 0) {
-                row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply { topMargin = dp(8) }
-                }
+                row = newRow()
                 container.addView(row)
             }
             val button = layoutInflater
@@ -298,7 +309,228 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun newRow(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(8) }
+    }
+
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    // ---------------------------------------------------------------- 唤醒设备
+    /** 手机本地保存的唤醒设备，每行两个（名字通常较长）。 */
+    private fun buildWolButtons() {
+        val targets = Prefs.wolTargets(this)
+        boxWol.removeAllViews()
+        if (targets.isEmpty()) {
+            txtWolEmpty.visibility = View.VISIBLE
+            return
+        }
+        txtWolEmpty.visibility = View.GONE
+        var row: LinearLayout? = null
+        targets.forEachIndexed { index, target ->
+            if (index % 2 == 0) {
+                row = newRow()
+                boxWol.addView(row)
+            }
+            val button = layoutInflater
+                .inflate(R.layout.item_button, row, false) as MaterialButton
+            button.text = target.name
+            button.isAllCaps = false
+            val lp = button.layoutParams as LinearLayout.LayoutParams
+            if (index % 2 != 0) lp.marginStart = dp(8)
+            button.layoutParams = lp
+            button.setOnClickListener { wake(target) }
+            button.setOnLongClickListener { showWolActions(target); true }
+            row?.addView(button)
+        }
+    }
+
+    /** 手机自己广播魔术包 —— 电脑关机时唯一可行的路径。 */
+    private fun wake(target: WolTarget) {
+        toast(getString(R.string.msg_wol_sending))
+        pool.execute {
+            try {
+                val sent = Wol.send(this, target)
+                runOnUiThread {
+                    toast(getString(R.string.msg_wol_sent, target.name, sent.joinToString(" · ")))
+                }
+            } catch (e: Exception) {
+                val reason = e.message ?: e.javaClass.simpleName
+                runOnUiThread { toast(getString(R.string.msg_wol_failed, reason)) }
+            }
+        }
+    }
+
+    private fun showWolActions(target: WolTarget) {
+        val items = arrayOf(
+            getString(R.string.wol_act_wake),
+            getString(R.string.wol_act_edit),
+            getString(R.string.wol_act_delete),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.wol_actions_title, target.name))
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> wake(target)
+                    1 -> showWolDialog(target)
+                    else -> {
+                        Prefs.removeWolTarget(this, target.mac)
+                        buildWolButtons()
+                        toast(getString(R.string.msg_wol_deleted, target.name))
+                    }
+                }
+            }
+            .setNegativeButton(R.string.dlg_cancel, null)
+            .show()
+    }
+
+    /** 添加 / 编辑唤醒设备；existing 为 null 表示新增。 */
+    private fun showWolDialog(existing: WolTarget?) {
+        val view = layoutInflater.inflate(R.layout.dialog_add_wol, null)
+        val nameInput = view.findViewById<EditText>(R.id.editWolName)
+        val macInput = view.findViewById<EditText>(R.id.editWolMac)
+        val bcastInput = view.findViewById<EditText>(R.id.editWolBcast)
+        val portInput = view.findViewById<EditText>(R.id.editWolPort)
+        val detectedLabel = view.findViewById<TextView>(R.id.wolDetectedLabel)
+        val detectedBox = view.findViewById<LinearLayout>(R.id.boxWolDetected)
+
+        nameInput.setText(existing?.name ?: "")
+        macInput.setText(existing?.mac ?: "")
+        bcastInput.setText(existing?.broadcast ?: "")
+        portInput.setText((existing?.port ?: 9).toString())
+
+        // 「一键填入电脑网卡」快捷按钮
+        if (detectedNics.isEmpty()) {
+            detectedLabel.text = getString(R.string.wol_no_detected)
+        } else {
+            detectedNics.forEach { nic ->
+                val chip = layoutInflater
+                    .inflate(R.layout.item_button, detectedBox, false) as MaterialButton
+                chip.text = "${nic.name} · ${nic.mac}"
+                chip.isAllCaps = false
+                chip.textSize = 12f
+                val lp = chip.layoutParams as LinearLayout.LayoutParams
+                lp.width = LinearLayout.LayoutParams.MATCH_PARENT
+                lp.weight = 0f
+                if (detectedBox.childCount > 0) lp.topMargin = dp(8)
+                chip.layoutParams = lp
+                chip.setOnClickListener {
+                    val label = serverHost.ifBlank {
+                        nic.name.ifBlank { getString(R.string.wol_default_pc_name) }
+                    }
+                    nameInput.setText(label)
+                    macInput.setText(nic.mac)
+                    if (nic.broadcast.isNotBlank()) bcastInput.setText(nic.broadcast)
+                }
+                detectedBox.addView(chip)
+            }
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(
+                if (existing == null) R.string.dlg_wol_add_title else R.string.dlg_wol_edit_title
+            )
+            .setView(view)
+            .setPositiveButton(R.string.dlg_save, null)
+            .setNegativeButton(R.string.dlg_cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = nameInput.text.toString().trim()
+                val mac = macInput.text.toString().trim()
+                if (name.isEmpty()) {
+                    toast(getString(R.string.msg_wol_need_name))
+                    return@setOnClickListener
+                }
+                if (mac.isEmpty()) {
+                    toast(getString(R.string.msg_wol_need_mac))
+                    return@setOnClickListener
+                }
+                if (!Wol.isValidMac(mac)) {
+                    toast(getString(R.string.msg_wol_bad_mac))
+                    return@setOnClickListener
+                }
+                val port = portInput.text.toString().trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: 9
+                val broadcast = bcastInput.text.toString().trim().ifBlank { "255.255.255.255" }
+                val target = WolTarget(
+                    name = name,
+                    mac = mac,
+                    broadcast = broadcast,
+                    port = port,
+                )
+
+                // 编辑时改了 MAC，先把旧记录删掉，避免留下一条死设备
+                if (existing != null && !sameMac(existing.mac, target.mac)) {
+                    Prefs.removeWolTarget(this, existing.mac)
+                }
+                Prefs.upsertWolTarget(this, target)
+                buildWolButtons()
+                toast(getString(R.string.msg_wol_saved, target.name))
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun sameMac(a: String, b: String): Boolean {
+        val left = runCatching { Wol.normalizeMac(a) }.getOrDefault(a)
+        val right = runCatching { Wol.normalizeMac(b) }.getOrDefault(b)
+        return left.equals(right, ignoreCase = true)
+    }
+
+    /**
+     * 把电脑上报的设备并入手机本地列表：
+     *  - 电脑自己的网卡（用主机名命名）—— 这就是「绑定这台电脑」
+     *  - 服务器上配置的其他唤醒目标
+     *
+     * 只在从未见过该 MAC 时添加，用户删掉后不会自动复活。
+     * 返回新增数量。
+     */
+    private fun importWolDevices(
+        host: String,
+        nics: List<DetectedNic>,
+        serverTargets: List<WolTarget>,
+    ): Int {
+        val existing = Prefs.wolTargets(this)
+        val known = existing.mapNotNull { macKey(it.mac) }.toMutableSet()
+        val imported = Prefs.importedMacs(this).toMutableSet()
+        val added = ArrayList<WolTarget>()
+
+        fun consider(target: WolTarget, fallbackName: String) {
+            val key = macKey(target.mac) ?: return
+            if (key in known || key in imported) return
+            val name = target.name.ifBlank { fallbackName }
+            added.add(target.copy(name = name))
+            known.add(key)
+            imported.add(key)
+        }
+
+        val pcName = host.ifBlank { getString(R.string.wol_default_pc_name) }
+        Wol.pickPrimaryNic(nics)?.let { nic ->
+            consider(
+                WolTarget(
+                    name = pcName,
+                    mac = nic.mac,
+                    broadcast = nic.broadcast.ifBlank { "255.255.255.255" },
+                    port = 9,
+                ),
+                pcName,
+            )
+        }
+        serverTargets.forEach { consider(it, it.name) }
+
+        if (added.isEmpty()) return 0
+        Prefs.saveWolTargets(this, existing + added)
+        Prefs.saveImportedMacs(this, imported)
+        return added.size
+    }
+
+    private fun macKey(mac: String): String? =
+        runCatching { Wol.normalizeMac(mac) }.getOrNull()
 
     // ---------------------------------------------------------------- 动作
     private fun wireAction(viewId: Int, action: String, params: JSONObject? = null) {
