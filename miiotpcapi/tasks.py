@@ -36,6 +36,11 @@ MEDIA_OPS = {
     "下一首": "next_track", "上一首": "prev_track",
 }
 
+# 会造成中断或数据丢失的动作：受「设置 → 电源与安全」的二次确认与总开关约束
+DANGEROUS_ACTIONS: frozenset[str] = frozenset(
+    {"shutdown", "restart", "hibernate", "signout", "sleep"}
+)
+
 
 @dataclass
 class MatchedTask:
@@ -77,8 +82,12 @@ class TaskExecutor:
 
     def __init__(self, screenshot_dir: str = "", apps_list: list[dict] | None = None,
                  wol_hosts: list[dict] | None = None, logger: Callable[[str], None] | None = None,
-                 miot_factory: Callable[[], Any] | None = None):
+                 miot_factory: Callable[[], Any] | None = None,
+                 screenshot_format: str = "png", block_dangerous: bool = False):
         self.screenshot_dir = screenshot_dir
+        self.screenshot_format = screenshot_format or "png"
+        # 设为 True 后，语音 / 米家 / 遥控台等所有入口都无法触发危险操作
+        self.block_dangerous = bool(block_dangerous)
         self.apps = apps_list or []
         self.wol_hosts = wol_hosts or []
         self.log = logger or (lambda msg: None)
@@ -108,6 +117,9 @@ class TaskExecutor:
         handler = self._actions.get(action)
         if not handler:
             return TaskResult(False, f"未知的动作类型：{action}")
+        if self.block_dangerous and action in DANGEROUS_ACTIONS:
+            self.log(f"危险动作 {action} 已被安全策略拦截")
+            return TaskResult(False, "危险操作已在「设置 → 电源与安全」中被禁止")
         ctx = {**mt.rule.get("params", {}), **mt.groups}
         try:
             return handler(ctx)
@@ -150,7 +162,8 @@ class TaskExecutor:
         return TaskResult(True, "已取消关机/重启任务")
 
     def _do_screenshot(self, g: dict) -> TaskResult:
-        path = screenshot.capture(self.screenshot_dir or str(SCREENSHOT_DIR))
+        path = screenshot.capture(self.screenshot_dir or str(SCREENSHOT_DIR),
+                                  fmt=self.screenshot_format)
         return TaskResult(True, f"已截图：{path.name}", detail=str(path))
 
     def _do_status(self, g: dict) -> TaskResult:
@@ -222,3 +235,24 @@ class TaskExecutor:
 
 
 ACTIONS = list(TaskExecutor({})._actions.keys())
+
+
+def executor_from_config(config, logger: Callable[[str], None] | None = None,
+                         miot_factory: Callable[[], Any] | None = None) -> TaskExecutor:
+    """按当前配置构造执行器。
+
+    语音桥接、米家指令通道、网页遥控台三个入口都用它，
+    这样「截图格式」与「危险操作总开关」在任何入口都一致生效。
+    """
+    data = config.data()
+    return TaskExecutor(
+        screenshot_dir=data.get("screenshot_dir", ""),
+        apps_list=data.get("apps", []),
+        wol_hosts=data.get("wol", []),
+        logger=logger,
+        miot_factory=miot_factory,
+        screenshot_format=(data.get("screenshot") or {}).get("format", "png"),
+        block_dangerous=bool((data.get("safety") or {}).get("block_dangerous", False)),
+    )
+
+

@@ -18,6 +18,13 @@ APP_NAME = "VoxNode"
 hiddenimports = [
     "mss.windows",
     "winreg",
+    # 自制 SVG 图标靠 QtSvg 渲染，必须显式带上
+    "PyQt6.QtSvg",
+]
+
+# 自制 SVG 图标资源（voxnode/icons.py 运行时会去 voxnode/assets/icons 找）
+datas = [
+    (str(ROOT / "voxnode" / "assets"), "voxnode/assets"),
 ]
 
 # 裁剪用不到的重型依赖，显著减小体积
@@ -34,7 +41,7 @@ excludes = [
     "PyQt6.QtBluetooth", "PyQt6.QtNfc", "PyQt6.QtPositioning", "PyQt6.QtSerialPort",
     "PyQt6.QtWebSockets", "PyQt6.QtWebChannel", "PyQt6.QtRemoteObjects",
     "PyQt6.QtSql", "PyQt6.QtSensors", "PyQt6.QtTextToSpeech", "PyQt6.QtOpenGL",
-    "PyQt6.QtOpenGLWidgets", "PyQt6.QtSvg", "PyQt6.QtSvgWidgets",
+    "PyQt6.QtOpenGLWidgets",
     "PyQt6.QtPrintSupport", "PyQt6.QtNetworkAuth", "PyQt6.QtXml", "PyQt6.QtStateMachine",
     # 其它无关的第三方 / 标准库
     "tkinter", "matplotlib", "numpy", "pandas", "PIL", "scipy", "IPython",
@@ -45,7 +52,7 @@ a = Analysis(
     [str(ROOT / "run_app.pyw")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

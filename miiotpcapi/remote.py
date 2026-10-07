@@ -146,8 +146,14 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, _http_ok(result))
 
     def _send_screenshot(self) -> None:
+        from .core import screenshot as shot_mod
+
         directory = Path(self.app.screenshot_dir or SCREENSHOT_DIR)
-        files = sorted(directory.glob("screenshot_*.png"), reverse=True) if directory.is_dir() else []
+        files: list[Path] = []
+        if directory.is_dir():
+            for pattern in shot_mod.PATTERNS:
+                files.extend(directory.glob(pattern))
+        files = sorted(set(files), reverse=True)
         if not files:
             self._send(404, _http_ok({"error": "还没有截图，请先点「截屏」"}))
             return

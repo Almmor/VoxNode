@@ -88,8 +88,9 @@ class ScreenshotPage(QFrame):
     def _shot(self) -> None:
         monitor = self.monitor_combo.currentData()
         save_dir = self.config.get("screenshot_dir", "")
+        fmt = str(self.config.get("screenshot.format", "png"))
         try:
-            path = screenshot.capture(save_dir, monitor if monitor is not None else -1)
+            path = screenshot.capture(save_dir, monitor if monitor is not None else -1, fmt=fmt)
         except Exception as e:
             QMessageBox.critical(self, "截图失败", str(e))
             return

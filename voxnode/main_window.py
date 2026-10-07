@@ -1,18 +1,19 @@
-"""主窗口：侧边栏导航 + 各功能页 + 系统托盘。"""
+"""主窗口：顶部自定义导航栏 + 各功能页 + 系统托盘。"""
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
+from PyQt6.QtCore import QSize, pyqtSignal
+from PyQt6.QtGui import QAction, QIcon, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
-from miiotpcapi import APP_NAME, APP_NAME_ZH, __version__
+from miiotpcapi import APP_NAME, APP_NAME_ZH, branding, __version__
 from miiotpcapi.config import Config
 from miiotpcapi.xiaomi.bridge import XiaoaiBridge
 
+from . import theme
 from .bridge_signals import BridgeSignals, ChannelSignals, RemoteSignals
+from .navbar import TopNavBar
 from .pages.apps_page import AppsPage
 from .pages.assistant_page import AssistantPage
 from .pages.dashboard_page import DashboardPage
@@ -26,23 +27,15 @@ from .pages.settings_page import SettingsPage
 from .pages.wol_page import WolPage
 
 
-def make_app_icon() -> QIcon:
-    """运行时绘制应用图标（橙色圆角方块 + Mi 字样），无需资源文件。"""
-    pm = QPixmap(64, 64)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setBrush(QColor("#ff6900"))
-    p.setPen(Qt.PenStyle.NoPen)
-    p.drawRoundedRect(2, 2, 60, 60, 16, 16)
-    p.setPen(QColor("#ffffff"))
-    f = QFont("Segoe UI", 22, QFont.Weight.Bold)
-    p.setFont(f)
-    p.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, "Mi")
-    p.end()
+def make_app_icon(accent: str | None = None) -> QIcon:
+    """应用图标：复用品牌绘制逻辑（圆角方块 + 显示器），随强调色变化。"""
+    color = accent or theme.current_palette()["accent"]
+    pm = QPixmap()
+    pm.loadFromData(branding.render_png(128, background=color), "PNG")
     return QIcon(pm)
 
 
+# 导航项：(标题, key)。key 同时就是 voxnode/assets/icons/<key>.svg 的文件名。
 NAV = [
     ("仪表盘", "dashboard"),
     ("电源控制", "power"),
@@ -78,46 +71,20 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"{APP_NAME} — {APP_NAME_ZH} v{__version__}")
         self.setWindowIcon(make_app_icon())
-        self.resize(1120, 720)
-        self.setMinimumSize(QSize(960, 640))
+        self.resize(1180, 760)
+        self.setMinimumSize(QSize(900, 620))
 
         root = QWidget()
-        layout = QHBoxLayout(root)
+        layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self.setCentralWidget(root)
 
-        # -- 侧边栏 --------------------------------------------------------
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(200)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(0, 16, 0, 12)
-        side.setSpacing(4)
-
-        logo = QLabel(f"  {APP_NAME}")
-        logo.setProperty("h1", True)
-        logo.setProperty("accent", True)
-        sub = QLabel("  " + APP_NAME_ZH)
-        sub.setProperty("muted", True)
-        side.addWidget(logo)
-        side.addWidget(sub)
-        side.addSpacing(14)
-
-        self.nav = QListWidget()
-        self.nav.setObjectName("navList")
-        for title, key in NAV:
-            item = QListWidgetItem(title)
-            item.setData(Qt.ItemDataRole.UserRole, key)
-            self.nav.addItem(item)
-        self.nav.setCurrentRow(0)
-        self.nav.currentRowChanged.connect(self._on_nav)
-        side.addWidget(self.nav, 1)
-
-        self.status_label = QLabel("  小爱桥接：未知")
-        self.status_label.setProperty("muted", True)
-        side.addWidget(self.status_label)
-        layout.addWidget(sidebar)
+        # -- 顶部自定义导航栏 ------------------------------------------------
+        self.nav = TopNavBar(NAV)
+        self.nav.set_labels_enabled(bool(config.get("ui.nav_labels", True)))
+        self.nav.currentChanged.connect(self._on_nav)
+        layout.addWidget(self.nav)
 
         # -- 页面区 ----------------------------------------------------------
         self.stack = QStackedWidget()
@@ -137,10 +104,14 @@ class MainWindow(QMainWindow):
         for _, key in NAV:
             self.stack.addWidget(self.pages[key])
         layout.addWidget(self.stack, 1)
+        self.nav.setCurrentRow(0)   # 触发 _on_nav(0)，让首页 on_shown 也跑一次
 
         # -- 桥接信号 --------------------------------------------------------
         signals.state.connect(self._on_bridge_state)
         signals.log.connect(lambda msg: None)
+
+        # 换主题时导航栏图标要重新染色，窗口图标也要跟着换
+        theme.theme_bus.changed.connect(self._on_theme_changed)
 
         # -- 托盘 ------------------------------------------------------------
         self.tray = QSystemTrayIcon(make_app_icon(), self)
@@ -161,11 +132,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
-        self.tray.activated.connect(
-            lambda reason: self.show_up()
-            if reason == QSystemTrayIcon.ActivationReason.DoubleClick
-            else None
-        )
+        self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
 
         if start_minimized:
@@ -183,28 +150,56 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         QApplication.quit()
 
+    # ---------------------------------------------------------------- 导航
     def _on_nav(self, row: int) -> None:
-        key = self.nav.item(row).data(Qt.ItemDataRole.UserRole)
+        key = self.nav.rowKey(row)
         page = self.pages.get(key)
         if page:
             self.stack.setCurrentWidget(page)
             if hasattr(page, "on_shown"):
                 page.on_shown()
 
-    def _on_bridge_state(self, running: bool) -> None:
-        text = "运行中" if running else "已停止"
-        self.status_label.setText(f"  小爱桥接：{text}")
-        self.status_label.setProperty("accent", running)
+    # ---------------------------------------------------------------- 主题
+    def _on_theme_changed(self, _palette: dict) -> None:
+        self.nav.refresh_theme()
+        icon = make_app_icon()
+        self.setWindowIcon(icon)
+        self.tray.setIcon(icon)
+        if hasattr(self.pages.get("settings"), "sync_theme_controls"):
+            self.pages["settings"].sync_theme_controls()
 
-    def closeEvent(self, event) -> None:
-        """点关闭按钮时最小化到托盘，真正退出走托盘菜单。"""
+    # ---------------------------------------------------------------- 通知
+    def notify(self, title: str, message: str, msec: int = 3500) -> None:
+        """桌面通知；在设置里关掉通知后静默跳过。"""
+        if not bool(self.config.get("ui.notifications", True)):
+            return
+        self.tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, msec)
+
+    # ---------------------------------------------------------------- 状态
+    def _on_bridge_state(self, running: bool) -> None:
+        self.nav.status.set_state(running)
+
+    # ---------------------------------------------------------------- 托盘
+    def _on_tray_activated(self, reason) -> None:
+        if reason != QSystemTrayIcon.ActivationReason.DoubleClick:
+            return
+        if self.config.get("ui.tray_double_click", "show") == "toggle_bridge":
+            if self.bridge and getattr(self.bridge, "running", False):
+                self.stop_requested.emit()
+                self.notify(APP_NAME, "已停止小爱桥接")
+            else:
+                self.start_requested.emit()
+                self.notify(APP_NAME, "正在启动小爱桥接")
+        else:
+            self.show_up()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        """按设置决定：最小化到托盘，还是直接退出。"""
+        if self.config.get("ui.close_action", "tray") == "quit":
+            self.quit_app()
+            return
         if self._first_close:
             self._first_close = False
-            self.tray.showMessage(
-                APP_NAME,
-                "已最小化到系统托盘，右键托盘图标可退出",
-                QSystemTrayIcon.MessageIcon.Information,
-                3000,
-            )
+            self.notify(APP_NAME, "已最小化到系统托盘，右键托盘图标可退出", 3000)
         event.ignore()
         self.hide()

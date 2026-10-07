@@ -141,6 +141,51 @@ def test_screenshot_capture(tmp_path):
     assert p.suffix == ".png"
 
 
+def test_screenshot_unknown_format_falls_back_to_png(tmp_path):
+    p = screenshot.capture(tmp_path, fmt="bmp")
+    assert p.suffix == ".png" and p.exists()
+
+
+def test_screenshot_jpeg_format(tmp_path):
+    """JPEG 走 Qt 编码；万一环境没有 Qt，必须退回 PNG 而不是报错。"""
+    p = screenshot.capture(tmp_path, fmt="jpeg")
+    assert p.suffix in (".jpg", ".png") and p.exists()
+    assert p.stat().st_size > 500
+
+
+def test_screenshot_recent_finds_all_formats(tmp_path):
+    (tmp_path / "screenshot_20260101_000000_full.png").write_bytes(b"x" * 10)
+    (tmp_path / "screenshot_20260102_000000_full.jpg").write_bytes(b"x" * 10)
+    (tmp_path / "note.txt").write_text("不该被当成截图")
+    names = [p.name for p in screenshot.recent(tmp_path, 10)]
+    assert "screenshot_20260102_000000_full.jpg" in names
+    assert "screenshot_20260101_000000_full.png" in names
+    assert "note.txt" not in names
+
+
+def test_screenshot_cleanup_only_removes_old(tmp_path):
+    import os
+    import time
+
+    old = tmp_path / "screenshot_20200101_000000_full.png"
+    new = tmp_path / "screenshot_20990101_000000_full.png"
+    other = tmp_path / "keep-me.txt"
+    for f in (old, new, other):
+        f.write_bytes(b"x" * 10)
+    long_ago = time.time() - 40 * 86400
+    os.utime(old, (long_ago, long_ago))
+
+    assert screenshot.cleanup(tmp_path, 30) == 1        # 只删 40 天前那张
+    assert not old.exists()
+    assert new.exists()
+    assert other.exists()                               # 非截图文件不动
+
+    # 0 或负数代表不清理
+    assert screenshot.cleanup(tmp_path, 0) == 0
+    assert screenshot.cleanup(tmp_path, -5) == 0
+    assert new.exists()
+
+
 # -- 小米模块 ---------------------------------------------------------------
 def test_mi_account_not_logged_in():
     from miiotpcapi.xiaomi.account import MiAccount
@@ -731,5 +776,286 @@ def test_android_wol_strings_exist_and_are_referenced():
     # wolSection 出现在 controlPanel 的闭合之后
     control_close = layout.rindex("</LinearLayout>", panel_start, wol_start)
     assert panel_start < control_close < wol_start, "wolSection 必须在 controlPanel 之外"
+
+
+# -- 顶部自定义导航栏与自制 SVG 图标 --------------------------------------------
+ROOT_DIR = Path(__file__).resolve().parents[1]
+VOXNODE_DIR = ROOT_DIR / "voxnode"
+ICON_DIR = VOXNODE_DIR / "assets" / "icons"
+
+
+def _icon_names() -> tuple[str, ...]:
+    pytest.importorskip("PyQt6")
+    from voxnode.icons import ICON_NAMES
+
+    return ICON_NAMES
+
+
+def test_nav_entries_are_all_backed_by_svg_icons():
+    """导航项的 key 就是图标文件名，两端必须严格一一对应。"""
+    pytest.importorskip("PyQt6")
+    from voxnode.main_window import NAV
+
+    keys = [key for _, key in NAV]
+    assert len(keys) == len(set(keys)), f"NAV 里有重复的 key：{keys}"
+
+    names = set(_icon_names())
+    assert set(keys) == names, (
+        f"导航项与图标不一致：缺图标 {sorted(set(keys) - names)}，"
+        f"多余图标 {sorted(names - set(keys))}")
+
+    missing = [k for k in keys if not (ICON_DIR / f"{k}.svg").is_file()]
+    assert not missing, f"缺少 SVG 文件：{missing}"
+
+
+def test_svg_icons_are_handwritten_vector():
+    """自制矢量图标：24×24 viewBox、白色描边、不嵌位图、不引外部资源。"""
+    import xml.etree.ElementTree as ET
+
+    for name in _icon_names():
+        path = ICON_DIR / f"{name}.svg"
+        text = path.read_text(encoding="utf-8")
+        root = ET.fromstring(text)
+
+        assert root.tag.endswith("svg"), f"{name} 根节点不是 <svg>"
+        assert root.get("viewBox") == "0 0 24 24", f"{name} viewBox 不是 24×24"
+        assert root.get("stroke") == "#ffffff", f"{name} 描边应为白色（便于运行时染色）"
+        # 必须是手写矢量：不能内嵌 base64 位图，也不能引用网络资源
+        assert "base64" not in text, f"{name} 内嵌了位图"
+        assert "<image" not in text, f"{name} 用了 <image>"
+        stripped = text.replace("http://www.w3.org/2000/svg", "")
+        assert "http://" not in stripped and "https://" not in stripped, f"{name} 引用了外部资源"
+
+
+def test_svg_icons_render_to_non_empty_pixmaps():
+    """光有文件不够 —— 渲染出来必须真的有内容（防止路径写错变成空白）。"""
+    pytest.importorskip("PyQt6")
+    from PyQt6.QtWidgets import QApplication
+
+    from voxnode import icons
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    for name in icons.ICON_NAMES:
+        pm = icons.svg_pixmap(name, 32, "#ffffff")
+        assert not pm.isNull(), f"{name} 渲染为空位图"
+        img = pm.toImage()
+        painted = sum(
+            1
+            for y in range(img.height())
+            for x in range(img.width())
+            if img.pixelColor(x, y).alpha() > 24
+        )
+        assert painted > 12, f"{name} 渲染后几乎没有内容（{painted} 像素）"
+
+
+def test_icon_tint_replaces_colour():
+    """染色必须真的换掉 RGB，否则换强调色时图标还是白的。
+
+    注意容差：抗锯齿边缘经过预乘/还原会有 ±1~2 的舍入，
+    所以这里校验「接近目标色」而不是「逐像素完全相等」。
+    """
+    pytest.importorskip("PyQt6")
+    from PyQt6.QtGui import QColor
+    from PyQt6.QtWidgets import QApplication
+
+    from voxnode import icons
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    target = QColor("#ff6900")
+    pm = icons.svg_pixmap("settings", 24, "#ff6900")
+    img = pm.toImage()
+
+    def near(color: QColor) -> bool:
+        return (abs(color.red() - target.red()) <= 3
+                and abs(color.green() - target.green()) <= 3
+                and abs(color.blue() - target.blue()) <= 3)
+
+    opaque = [
+        img.pixelColor(x, y)
+        for y in range(img.height())
+        for x in range(img.width())
+        if img.pixelColor(x, y).alpha() > 200
+    ]
+    assert opaque, "染色后没有不透明像素"
+    assert all(near(c) for c in opaque), (
+        f"染色没生效，出现了非目标色：{sorted({c.name() for c in opaque if not near(c)})}")
+    assert all(c.name() != "#ffffff" for c in opaque), "图标仍是白色，说明染色没生效"
+
+
+# -- 主题（强调色 + 界面缩放）--------------------------------------------------
+def test_theme_accents_produce_matching_qss():
+    pytest.importorskip("PyQt6")
+    from voxnode import theme
+
+    for key, (color, hover, pressed) in theme.ACCENTS.items():
+        c = theme.make_palette(key)
+        assert c["accent"] == color
+        qss = theme.build_qss(c, 1.0)
+        for value in (color, hover, pressed):
+            assert value in qss, f"{key} 的 {value} 没有进入 QSS"
+        # 选中底色由强调色与面板色混合得出，不能直接等于强调色（否则文字看不清）
+        assert c["selection"].startswith("#") and c["selection"] != c["accent"]
+
+    # 未知强调色回退到默认，不抛异常
+    fallback = theme.make_palette("不存在的颜色")
+    assert fallback["accent"] == theme.ACCENTS[theme.DEFAULT_ACCENT][0]
+
+
+def test_theme_scale_changes_font_size():
+    pytest.importorskip("PyQt6")
+    from voxnode import theme
+
+    c = theme.make_palette("orange")
+    assert "font-size: 13px" in theme.build_qss(c, 1.0)
+    assert "font-size: 16px" in theme.build_qss(c, 1.25)   # 13 × 1.25 ≈ 16
+    assert "font-size: 12px" in theme.build_qss(c, 0.9)    # 13 × 0.9  ≈ 12
+
+
+def test_nav_and_settings_styles_exist():
+    pytest.importorskip("PyQt6")
+    from voxnode import theme
+
+    qss = theme.build_qss(theme.make_palette(), 1.0)
+    for selector in (
+        "QWidget#topNav",
+        "QLabel#brandName",
+        "QWidget#navStatus",
+        'QPushButton[swatch="true"]',
+        "QScrollArea#settingsScroll",
+    ):
+        assert selector in qss, f"QSS 缺少 {selector}"
+
+
+# -- 新增设置项 ----------------------------------------------------------------
+def test_new_setting_groups_have_defaults(config):
+    for key, expected in [
+        ("ui.accent", "orange"),
+        ("ui.scale", 1.0),
+        ("ui.nav_labels", True),
+        ("ui.close_action", "tray"),
+        ("ui.tray_double_click", "show"),
+        ("ui.notifications", True),
+        ("safety.confirm_dangerous", True),
+        ("safety.block_dangerous", False),
+        ("screenshot.format", "png"),
+        ("screenshot.auto_clean_days", 0),
+    ]:
+        assert config.get(key) == expected, f"默认值不对：{key}"
+
+
+def test_settings_controls_cover_every_default_choice(config):
+    """下拉框选项必须覆盖配置默认值，否则界面会把默认值显示成第一项。"""
+    pytest.importorskip("PyQt6")
+    from voxnode import theme
+    from voxnode.pages.settings_page import CLOSE_LABELS, FORMAT_LABELS, TRAY_LABELS
+
+    assert {v for v, _ in FORMAT_LABELS} >= {"png", "jpeg"}
+    assert config.get("screenshot.format") in {v for v, _ in FORMAT_LABELS}
+    assert config.get("ui.close_action") in {v for v, _ in CLOSE_LABELS}
+    assert config.get("ui.tray_double_click") in {v for v, _ in TRAY_LABELS}
+    assert float(config.get("ui.scale")) in theme.SCALE_STEPS
+    assert str(config.get("ui.accent")) in theme.ACCENTS
+    assert all(isinstance(s, float) for s in theme.SCALE_STEPS)
+
+
+def test_settings_round_trip_persists(tmp_path):
+    p = tmp_path / "c.json"
+    c = Config(path=p)
+    c.set("ui.accent", "violet")
+    c.set("ui.scale", 1.25)
+    c.set("ui.close_action", "quit")
+    c.set("safety.block_dangerous", True)
+    c.set("screenshot.format", "jpeg")
+    c.set("screenshot.auto_clean_days", 7)
+
+    again = Config(path=p)
+    assert again.get("ui.accent") == "violet"
+    assert again.get("ui.scale") == 1.25
+    assert again.get("ui.close_action") == "quit"
+    assert again.get("safety.block_dangerous") is True
+    assert again.get("screenshot.format") == "jpeg"
+    assert again.get("screenshot.auto_clean_days") == 7
+    # 旧配置里没有 ui/safety/screenshot 分组时，合并默认值后仍要存在
+    assert again.get("ui.tray_double_click") == "show"
+    assert again.get("safety.confirm_dangerous") is True
+
+
+# -- 危险操作策略 --------------------------------------------------------------
+def test_dangerous_actions_cover_the_right_set():
+    from miiotpcapi.tasks import ACTIONS, DANGEROUS_ACTIONS
+
+    for action in ("shutdown", "restart", "hibernate", "signout", "sleep"):
+        assert action in ACTIONS, f"{action} 未注册到执行器"
+        assert action in DANGEROUS_ACTIONS, f"{action} 应被视为危险动作"
+    for action in ("screenshot", "report_status", "lock", "volume", "media", "wol"):
+        assert action not in DANGEROUS_ACTIONS, f"{action} 不该被当成危险动作"
+
+
+def test_block_dangerous_flag_gates_execution(monkeypatch):
+    """总开关的两种取值行为要相反，且被拦下时绝不能真正执行。
+
+    为了跑测试不会真把开发机关掉，这里把关机/重启换成记录器 ——
+    即使守卫失效，最坏也只是记一笔，不会有副作用。
+    """
+    from miiotpcapi import tasks as tasks_mod
+
+    calls: list[tuple[str, int]] = []
+    monkeypatch.setattr(tasks_mod.power, "shutdown", lambda d=0: calls.append(("shutdown", d)))
+    monkeypatch.setattr(tasks_mod.power, "restart", lambda d=0: calls.append(("restart", d)))
+
+    task = tasks_mod.MatchedTask(
+        rule={"action": "shutdown", "params": {"delay": 60}}, groups={})
+
+    blocked = tasks_mod.TaskExecutor(block_dangerous=True)
+    result = blocked.execute(task)
+    assert result.ok is False and "禁止" in result.reply
+    assert calls == [], "被禁止的动作不该真正执行"
+
+    allowed = tasks_mod.TaskExecutor(block_dangerous=False)
+    assert allowed.execute(task).ok is True
+    assert calls == [("shutdown", 60)], "未开启开关时应正常执行"
+
+
+def test_executor_from_config_reads_new_settings(tmp_path):
+    from miiotpcapi.tasks import executor_from_config
+
+    cfg = Config(path=tmp_path / "c.json")
+    cfg.set("screenshot.format", "jpeg", save=False)
+    cfg.set("safety.block_dangerous", True, save=False)
+    cfg.set("screenshot_dir", str(tmp_path / "shots"), save=False)
+
+    ex = executor_from_config(cfg)
+    assert ex.screenshot_format == "jpeg"
+    assert ex.block_dangerous is True
+    assert ex.screenshot_dir == str(tmp_path / "shots")
+
+    # 默认配置下不拦截、用 PNG
+    plain = executor_from_config(Config(path=tmp_path / "d.json"))
+    assert plain.screenshot_format == "png"
+    assert plain.block_dangerous is False
+
+
+# -- 打包配置 ------------------------------------------------------------------
+def test_packaging_keeps_qt_svg_and_bundles_icons():
+    """打包配置漏了 QtSvg 或 svg 资源，装出来的程序图标会全是空白。"""
+    spec = (ROOT_DIR / "packaging" / "voxnode.spec").read_text(encoding="utf-8")
+
+    excludes = spec.split("excludes = [", 1)[1].split("]", 1)[0]
+    assert "PyQt6.QtSvg" not in excludes, "QtSvg 被排除了，SVG 图标会全部渲染失败"
+    assert '"PyQt6.QtSvg"' in spec, "hiddenimports 里要显式带上 QtSvg"
+
+    datas = spec.split("datas = [", 1)[1].split("]", 1)[0]
+    assert "assets" in datas, "没有把 voxnode/assets 打进包里"
+
+
+def test_pyproject_ships_svg_assets():
+    text = (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
+    assert "package-data" in text, "缺少 package-data，pip 安装后会丢图标"
+    assert "assets/icons/*.svg" in text
+
 
 

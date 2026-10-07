@@ -7,8 +7,9 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from miiotpcapi import APP_NAME
 from miiotpcapi.config import Config
+from miiotpcapi.core import screenshot as screenshot_core
 from miiotpcapi.remote import RemoteServer
-from miiotpcapi.tasks import TaskExecutor
+from miiotpcapi.tasks import TaskExecutor, executor_from_config
 from miiotpcapi.xiaomi.bridge import XiaoaiBridge
 from miiotpcapi.xiaomi.channel import MijiaChannel
 
@@ -147,6 +148,49 @@ def _selftest() -> int:
             win.nav.setCurrentRow(i)
             app.processEvents()
         lines.append(f"main_window_pages={win.stack.count()}")
+
+        # 顶部自定义导航栏：入口数 = 页面数 = 自制 SVG 图标数，且图标真的渲染出内容
+        from . import icons as _icons
+        from . import theme as _theme
+        from .main_window import NAV as _NAV
+
+        assert win.nav.count() == len(_NAV) == win.stack.count(), (
+            win.nav.count(), len(_NAV), win.stack.count())
+        missing_svg = [k for _, k in _NAV if not _icons.icon_path(k).is_file()]
+        assert not missing_svg, f"缺少自制 SVG 图标：{missing_svg}"
+        blank = [b.icon_name for b in win.nav.buttons if b._pix_off.isNull()]
+        assert not blank, f"这些导航图标渲染为空：{blank}"
+        lines.append(f"top_nav=ok(items={win.nav.count()}, svg={len(_icons.ICON_NAMES)})")
+
+        # 换强调色：调色板、QSS 与导航栏图标都要跟着变，切回来也要能还原
+        for accent in ("violet", "blue", "green", "magenta", "orange"):
+            _theme.set_theme(accent=accent)
+            app.processEvents()
+            assert _theme.current_palette()["accent"] == _theme.ACCENTS[accent][0]
+            assert _theme.ACCENTS[accent][0] in app.styleSheet()
+        assert _theme.current_accent() == "orange"
+        _theme.set_theme(scale=1.25)
+        app.processEvents()
+        _theme.set_theme(scale=1.0)
+        app.processEvents()
+        lines.append("theme_switch=ok")
+
+        # 设置页：新增的设置分组控件都在
+        settings = win.pages["settings"]
+        for attr in ("_swatches", "cmb_scale", "chk_nav_labels", "chk_autostart",
+                     "chk_minimized", "cmb_close", "cmb_tray", "chk_notify",
+                     "spn_delay", "chk_confirm", "chk_block", "cmb_format", "spn_clean"):
+            assert hasattr(settings, attr), f"设置页缺少控件 {attr}"
+        lines.append("settings_page=ok(groups=5)")
+
+        # 导航栏文字开关要真的作用到按钮上
+        win.nav.set_labels_enabled(False)
+        app.processEvents()
+        assert all(not b.shows_label() for b in win.nav.buttons), "关闭文字后仍有按钮显示标签"
+        win.nav.set_labels_enabled(True)
+        app.processEvents()
+        lines.append("nav_label_toggle=ok")
+
         wiz = SetupWizard(cfg)
         ids = wiz.pageIds()
         for pid in ids:
@@ -185,11 +229,21 @@ def run(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
-    app.setWindowIcon(make_app_icon())
     app.setQuitOnLastWindowClosed(False)  # 关闭主窗口时驻留系统托盘
-    apply_theme(app)
 
     config = Config()
+    # 主题从配置读：强调色与界面缩放在「设置 → 外观」里改过就要延续
+    apply_theme(app, str(config.get("ui.accent", "orange")),
+                float(config.get("ui.scale", 1.0)))
+    app.setWindowIcon(make_app_icon())
+
+    # 启动时按设置清理过期截图（0 = 不清理）
+    try:
+        screenshot_core.cleanup(config.get("screenshot_dir", ""),
+                                config.get("screenshot.auto_clean_days", 0))
+    except Exception:
+        pass
+
     need_setup = force_wizard or not config.get("setup_completed", False)
     first_run = need_setup
 
@@ -211,11 +265,9 @@ def run(argv: list[str] | None = None) -> int:
     )
 
     def executor_factory() -> TaskExecutor:
-        data = config.data()
-        return TaskExecutor(
-            screenshot_dir=data.get("screenshot_dir", ""),
-            apps_list=data.get("apps", []),
-            wol_hosts=data.get("wol", []),
+        # 截图格式与危险操作策略统一从配置读，三个入口（语音 / 米家 / 遥控台）一致
+        return executor_from_config(
+            config,
             logger=lambda m: channel_signals.log.emit(m),
             miot_factory=lambda: make_miio(config),
         )

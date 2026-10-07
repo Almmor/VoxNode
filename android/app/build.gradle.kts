@@ -11,8 +11,8 @@ android {
         applicationId = "com.voxnode.remote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 500
-        versionName = "0.5.0"
+        versionCode = 600
+        versionName = "0.6.0"
         resourceConfigurations += listOf("zh", "en")
     }
 

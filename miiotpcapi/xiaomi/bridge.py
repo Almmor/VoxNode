@@ -12,7 +12,7 @@ from typing import Callable, Optional
 
 from ..config import Config, TOKEN_FILE
 from ..secure import load_password
-from ..tasks import TaskExecutor, format_reply, match
+from ..tasks import executor_from_config, format_reply, match
 from .account import MiAccount
 from .mina import MiNA
 
@@ -135,13 +135,8 @@ class XiaoaiBridge:
     def _handle_query(self, query: str) -> None:
         self.on_query(query)
         data = self.config.data()
-        executor = TaskExecutor(
-            screenshot_dir=data.get("screenshot_dir", ""),
-            apps_list=data.get("apps", []),
-            wol_hosts=data.get("wol", []),
-            logger=self.on_log,
-            miot_factory=self.miot_client,
-        )
+        executor = executor_from_config(
+            self.config, logger=self.on_log, miot_factory=self.miot_client)
         mt = match(query, data.get("tasks", []))
         if not mt:
             self.on_result(query, "", False, "未匹配到指令")

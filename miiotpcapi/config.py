@@ -131,6 +131,24 @@ DEFAULTS: dict[str, Any] = {
     "autostart": False,
     "start_minimized": False,
     "screenshot_dir": str(SCREENSHOT_DIR),
+    # 界面外观
+    "ui": {
+        "accent": "orange",          # orange / blue / green / violet / magenta
+        "scale": 1.0,                # 0.9 / 1.0 / 1.1 / 1.25
+        "nav_labels": True,          # 顶部导航栏是否显示文字（关闭则只留图标）
+        "close_action": "tray",      # 点关闭按钮时：tray=最小化到托盘，quit=直接退出
+        "tray_double_click": "show",  # 双击托盘：show=显示主界面，toggle_bridge=启停桥接
+        "notifications": True,       # 操作结果是否弹桌面通知
+    },
+    # 危险操作（关机 / 重启 / 休眠 / 注销）的安全策略
+    "safety": {
+        "confirm_dangerous": True,   # 二次确认
+        "block_dangerous": False,    # 一律禁止，防止误触或语音误触发
+    },
+    "screenshot": {
+        "format": "png",             # png / jpeg
+        "auto_clean_days": 0,        # 自动清理多少天前的截图，0 = 不清理
+    },
     "power": {"default_delay": 60},
     "xiaomi": {
         "username": "",

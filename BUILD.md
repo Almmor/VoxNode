@@ -100,7 +100,7 @@ dist\VoxNode\VoxNode.exe --selftest
 
 ```powershell
 # 静默安装（不建桌面图标、不开机自启）
-.\VoxNode-Setup-0.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /MERGETASKS=!desktopicon,!autostart
+.\VoxNode-Setup-0.6.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /MERGETASKS=!desktopicon,!autostart
 
 # 静默卸载
 & "$env:LOCALAPPDATA\Programs\VoxNode\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
