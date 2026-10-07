@@ -7,10 +7,13 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from miiotpcapi import APP_NAME
 from miiotpcapi.config import Config
+from miiotpcapi.tasks import TaskExecutor
 from miiotpcapi.xiaomi.bridge import XiaoaiBridge
+from miiotpcapi.xiaomi.channel import MijiaChannel
 
-from .bridge_signals import BridgeSignals, OtpBridge, ask_otp_from_thread
+from .bridge_signals import BridgeSignals, ChannelSignals, OtpBridge, ask_otp
 from .main_window import MainWindow, make_app_icon
+from .pages.mijia_page import make_miio
 from .theme import apply_theme
 from .wizard import SetupWizard
 
@@ -33,7 +36,7 @@ def _selftest() -> int:
     import traceback
     from pathlib import Path
 
-    report = Path(tempfile.gettempdir()) / "mipcb_selftest.txt"
+    report = Path(tempfile.gettempdir()) / "voxnode_selftest.txt"
     lines: list[str] = []
     ok = True
     try:
@@ -61,18 +64,43 @@ def _selftest() -> int:
         m = match("关机", DEFAULT_TASKS)
         lines.append(f"match={m.rule['action'] if m else 'FAIL'}")
 
-        # 界面：主窗口 8 页 + 向导 5 页
-        tmp_cfg = Path(tempfile.gettempdir()) / "mipcb_selftest_cfg.json"
-        cfg = Config(path=tmp_cfg)
-        from miiotpcapi.xiaomi.bridge import XiaoaiBridge
+        # 米家：签名算法自检（不联网）
+        from miiotpcapi.xiaomi.miot import sign_data, sign_nonce
+        import base64 as _b64
+        ssecurity = _b64.b64encode(b"0123456789abcdef").decode()
+        nonce = _b64.b64encode(b"abcdefgh" + (0).to_bytes(4, "big")).decode()
+        assert len(sign_nonce(ssecurity, nonce)) > 0
+        signed = sign_data("/home/device_list", '{"a": 1}', ssecurity)
+        assert {"data", "nonce", "signature"} == set(signed)
+        lines.append("miot_sign=ok")
 
-        from .bridge_signals import BridgeSignals
+        # 米家：指令通道取值匹配
+        from miiotpcapi.xiaomi.channel import value_matches
+        assert value_matches(True, "1") and value_matches(0, "off") and value_matches(30, "30")
+        assert not value_matches(2, "1")
+        lines.append("channel_match=ok")
+
+        # 扫码登录模块可导入
+        from miiotpcapi.xiaomi.qrlogin import XiaomiQrLogin  # noqa: F401
+        lines.append("qrlogin=ok")
+
+        # 界面：主窗口各页 + 向导 5 页
+        tmp_cfg = Path(tempfile.gettempdir()) / "voxnode_selftest_cfg.json"
+        cfg = Config(path=tmp_cfg)
+        from miiotpcapi.tasks import TaskExecutor
+        from miiotpcapi.xiaomi.bridge import XiaoaiBridge
+        from miiotpcapi.xiaomi.channel import MijiaChannel
+
+        from .bridge_signals import BridgeSignals, ChannelSignals
         from .main_window import MainWindow
         from .wizard import SetupWizard
 
         signals = BridgeSignals()
+        chan_signals = ChannelSignals()
         bridge = XiaoaiBridge(cfg)
-        win = MainWindow(cfg, bridge, signals, start_minimized=True)
+        channel = MijiaChannel(cfg, lambda: TaskExecutor(), on_log=lambda m: None)
+        win = MainWindow(cfg, bridge, signals, channel=channel,
+                         channel_signals=chan_signals, start_minimized=True)
         for i in range(win.nav.count()):
             win.nav.setCurrentRow(i)
             app.processEvents()
@@ -121,12 +149,13 @@ def run(argv: list[str] | None = None) -> int:
     need_setup = force_wizard or not config.get("setup_completed", False)
     first_run = need_setup
 
-    # 桥接信号中继（工作线程 → 主线程）
+    # 信号中继（工作线程 → 主线程）
     signals = BridgeSignals()
+    channel_signals = ChannelSignals()
     otp_bridge = OtpBridge(None)
 
     def on_otp(method: str) -> str:
-        return ask_otp_from_thread(otp_bridge, method)
+        return ask_otp(otp_bridge, method)
 
     bridge = XiaoaiBridge(
         config,
@@ -137,9 +166,27 @@ def run(argv: list[str] | None = None) -> int:
         on_otp=on_otp,
     )
 
+    def executor_factory() -> TaskExecutor:
+        data = config.data()
+        return TaskExecutor(
+            screenshot_dir=data.get("screenshot_dir", ""),
+            apps_list=data.get("apps", []),
+            wol_hosts=data.get("wol", []),
+            logger=lambda m: channel_signals.log.emit(m),
+            miot_factory=lambda: make_miio(config),
+        )
+
+    channel = MijiaChannel(
+        config, executor_factory,
+        on_log=lambda m: channel_signals.log.emit(m),
+        on_state=lambda r: channel_signals.state.emit(r),
+        on_trigger=lambda v, r, ok: channel_signals.trigger.emit(v, r, ok),
+    )
+
     # 首次部署时先不显示主窗口，避免向导后面闪现
     start_minimized = bool(config.get("start_minimized", False)) or first_run
-    window = MainWindow(config, bridge, signals, start_minimized=start_minimized)
+    window = MainWindow(config, bridge, signals, channel=channel,
+                        channel_signals=channel_signals, start_minimized=start_minimized)
     otp_bridge.parent_widget = window
     otp_bridge.setParent(window)
 
@@ -147,11 +194,20 @@ def run(argv: list[str] | None = None) -> int:
         if config.get("xiaomi.username", ""):
             bridge.start()
         else:
-            QMessageBox.information(window, "提示", "请先在「小爱控制」页登录小米账号。")
+            QMessageBox.information(window, "提示", "请先在「语音助手」页登录小米账号。")
+
+    def _start_autos() -> None:
+        if not config.get("xiaomi.username", ""):
+            return
+        if config.get("bridge.enabled", False):
+            bridge.start()
+        if config.get("mijia_channel.enabled", False):
+            channel.start()
 
     window.start_requested.connect(_start_bridge)
     window.stop_requested.connect(bridge.stop)
     app.aboutToQuit.connect(bridge.stop)
+    app.aboutToQuit.connect(channel.stop)
 
     if need_setup:
         wizard = SetupWizard(config)
@@ -162,11 +218,9 @@ def run(argv: list[str] | None = None) -> int:
             return 0  # 用户中途取消且尚未完成部署，直接退出
         if not config.get("start_minimized", False):
             window.show_up()
-        if config.get("bridge.enabled", False) and config.get("xiaomi.username", ""):
-            bridge.start()
+        _start_autos()
     else:
-        if config.get("bridge.enabled", False) and config.get("xiaomi.username", ""):
-            bridge.start()
+        _start_autos()
 
     return app.exec()
 

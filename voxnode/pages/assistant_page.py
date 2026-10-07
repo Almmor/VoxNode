@@ -1,4 +1,4 @@
-"""小爱控制：账号登录 / 音箱选择 / 桥接启停 / 语音指令规则 / 运行日志。"""
+"""语音助手页：账号登录、音箱选择、语音桥接启停、指令规则与运行日志。"""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
@@ -9,71 +9,15 @@ from PyQt6.QtWidgets import (
 )
 
 from miiotpcapi.config import Config, TOKEN_FILE
-from miiotpcapi.secure import clear_password, load_password, save_password
+from miiotpcapi.secure import clear_password, load_password
 from miiotpcapi.tasks import ACTIONS
 from miiotpcapi.xiaomi.account import MiAccount
 from miiotpcapi.xiaomi.mina import MiNA
 
-from ..bridge_signals import BridgeSignals, OtpBridge, ask_otp_from_thread
+from ..bridge_signals import BridgeSignals
+from ..login import LoginDialog
 from ..ui import card, page
 from ..workers import run_async
-
-
-class LoginDialog(QDialog):
-    def __init__(self, parent, config: Config, username: str = ""):
-        super().__init__(parent)
-        self.config = config
-        self.setWindowTitle("登录小米账号")
-        self.setMinimumWidth(440)
-        lay = QVBoxLayout(self)
-        form = QFormLayout()
-        self.user = QLineEdit(username)
-        self.pwd = QLineEdit()
-        self.pwd.setEchoMode(QLineEdit.EchoMode.Password)
-        self.save = QCheckBox("记住密码（DPAPI 加密保存，仅本机可解）")
-        self.save.setChecked(bool(config.get("xiaomi.save_password", True)))
-        form.addRow("账号（手机/邮箱）", self.user)
-        form.addRow("密码", self.pwd)
-        lay.addLayout(form)
-        lay.addWidget(self.save)
-        self.status = QLabel("密码仅用于登录并获取 serviceToken，不会上传到任何第三方。")
-        self.status.setProperty("muted", True)
-        self.status.setWordWrap(True)
-        lay.addWidget(self.status)
-        btn = QPushButton("登录")
-        btn.setProperty("kind", "primary")
-        btn.clicked.connect(self._login)
-        lay.addWidget(btn)
-
-    def _login(self) -> None:
-        user = self.user.text().strip()
-        pwd = self.pwd.text()
-        if not user or not pwd:
-            self.status.setText("请输入账号和密码。")
-            return
-        self.status.setText("登录中，若需要验证码会弹出输入框…")
-        otp_bridge = OtpBridge(self)
-
-        def otp(method: str) -> str:
-            return ask_otp_from_thread(otp_bridge, method)
-
-        def on_done(_):
-            self.config.set("xiaomi.username", user, save=False)
-            if self.save.isChecked():
-                save_password(self.config, pwd)
-            else:
-                clear_password(self.config)
-            self.config.save()
-            self.accept()
-
-        def on_fail(err: str):
-            self.status.setText(f"登录失败：{err}")
-
-        def do_login():
-            account = MiAccount(user, pwd, token_path=TOKEN_FILE, otp_callback=otp)
-            return account.login()
-
-        run_async(self, do_login, on_done, on_fail)
 
 
 class TaskEditDialog(QDialog):
@@ -91,7 +35,7 @@ class TaskEditDialog(QDialog):
         if rule:
             self.action.setCurrentText(rule.get("action", "tts"))
         self.reply = QLineEdit(rule.get("reply", "") if rule else "")
-        self.reply.setPlaceholderText("小爱播报的回复，可留空；支持 {app} 等占位")
+        self.reply.setPlaceholderText("语音播报的回复，可留空；支持 {app}、{dev} 等占位")
         self.enabled = QCheckBox("启用")
         self.enabled.setChecked(rule.get("enabled", True) if rule else True)
         form.addRow("匹配词", self.patterns)
@@ -99,9 +43,13 @@ class TaskEditDialog(QDialog):
         form.addRow("回复", self.reply)
         lay.addLayout(form)
         lay.addWidget(self.enabled)
-        tip = QLabel("内置动作：shutdown/restart/lock/sleep/hibernate/signout/cancel_shutdown/"
-                     "screenshot/report_status/open_app/close_app/wol/volume/media/tts；"
-                     "open_app 等动作的参数可用命名捕获组，如 打开(?P<app>.+)")
+        tip = QLabel(
+            "内置动作：shutdown / restart / lock / sleep / hibernate / signout / "
+            "cancel_shutdown / screenshot / report_status / open_app / close_app / "
+            "wol / volume / media / miot_power / tts。\n"
+            "带参数的动作可用命名捕获组，如 打开(?P<app>.+)；"
+            "miot_power 用 (?P<dev>.+) 捕获设备名。"
+        )
         tip.setProperty("muted", True)
         tip.setWordWrap(True)
         lay.addWidget(tip)
@@ -127,12 +75,12 @@ class TaskEditDialog(QDialog):
         return "task-" + hashlib.md5("|".join(patterns).encode()).hexdigest()[:8]
 
 
-class XiaoaiPage(QFrame):
+class AssistantPage(QFrame):
     def __init__(self, config: Config, bridge, signals: BridgeSignals):
         super().__init__()
         self.config = config
         self.bridge = bridge
-        _, lay = page("小爱控制", "登录小米账号后，对小爱音箱说话即可控制这台电脑", root=self)
+        _, lay = page("语音助手", "登录小米账号后，对音箱说话即可控制这台电脑", root=self)
 
         # -- 账号 ----------------------------------------------------------
         acc_card, acc_lay = card("小米账号")
@@ -186,7 +134,7 @@ class XiaoaiPage(QFrame):
         self.interval.setSingleStep(0.5)
         self.interval.setSuffix(" 秒")
         self.interval.setValue(float(config.get("bridge.poll_interval", 2.0)))
-        self.tts_reply = QCheckBox("小爱语音播报执行结果")
+        self.tts_reply = QCheckBox("语音播报执行结果")
         self.tts_reply.setChecked(bool(config.get("bridge.tts_reply", True)))
         opt_row.addWidget(QLabel("轮询间隔"))
         opt_row.addWidget(self.interval)
@@ -227,7 +175,7 @@ class XiaoaiPage(QFrame):
         # -- 日志 ----------------------------------------------------------
         log_card, log_lay = card("运行日志")
         self.log_list = QListWidget()
-        self.log_list.setMaximumHeight(200)
+        self.log_list.setMaximumHeight(180)
         log_lay.addWidget(self.log_list)
         lay.addWidget(log_card, 1)
 
@@ -244,8 +192,13 @@ class XiaoaiPage(QFrame):
     def _refresh_acc(self) -> None:
         username = self.config.get("xiaomi.username", "")
         logged = bool(username) and TOKEN_FILE.is_file()
+        kind = self.config.get("xiaomi.login_type", "password")
         dev_name = self.config.get("xiaomi.device.name", "")
-        text = f"已登录：{username}" if logged else "未登录"
+        if logged:
+            how = "扫码" if kind == "qr" else "账号密码"
+            text = f"已登录（{how}）：{username}"
+        else:
+            text = "未登录"
         if dev_name:
             text += f"｜音箱：{dev_name}"
         self.acc_label.setText(text)
@@ -291,6 +244,7 @@ class XiaoaiPage(QFrame):
                 self.speaker.addItem(name, d["deviceID"])
                 if d["deviceID"] == current:
                     self.speaker.setCurrentIndex(self.speaker.count() - 1)
+            self._append_log(f"已加载 {len(devices)} 台语音设备")
 
         def on_fail(err):
             QMessageBox.warning(self, "获取音箱失败", err)
@@ -307,10 +261,10 @@ class XiaoaiPage(QFrame):
     def _start(self) -> None:
         self.config.set("bridge.poll_interval", float(self.interval.value()), save=False)
         self.config.set("bridge.tts_reply", self.tts_reply.isChecked(), save=False)
-        self.config.set("bridge.enabled", True)
         if not self.config.get("xiaomi.username", ""):
             QMessageBox.information(self, "提示", "请先登录小米账号，再启动桥接。")
             return
+        self.config.set("bridge.enabled", True)
         self.bridge.start()
 
     def _stop(self) -> None:

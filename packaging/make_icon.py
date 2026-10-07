@@ -3,7 +3,7 @@
 用法：
     python packaging/make_icon.py [输出路径]
 
-设计：小米橙圆角方块 + 白色显示器图形，在小尺寸下依然清晰可辨。
+设计：科技橙圆角方块 + 白色显示器图形，在小尺寸下依然清晰可辨。
 """
 from __future__ import annotations
 

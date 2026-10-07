@@ -64,11 +64,13 @@ class TaskExecutor:
     """执行匹配到的动作。context 至少包含 apps / wol 两个列表。"""
 
     def __init__(self, screenshot_dir: str = "", apps_list: list[dict] | None = None,
-                 wol_hosts: list[dict] | None = None, logger: Callable[[str], None] | None = None):
+                 wol_hosts: list[dict] | None = None, logger: Callable[[str], None] | None = None,
+                 miot_factory: Callable[[], Any] | None = None):
         self.screenshot_dir = screenshot_dir
         self.apps = apps_list or []
         self.wol_hosts = wol_hosts or []
         self.log = logger or (lambda msg: None)
+        self.miot_factory = miot_factory  # 惰性创建 MiIO 客户端，避免无账号时崩溃
         self._actions: dict[str, Callable[[dict], TaskResult]] = {
             "shutdown": self._do_shutdown,
             "restart": self._do_restart,
@@ -85,6 +87,7 @@ class TaskExecutor:
             "volume": self._do_volume,
             "media": self._do_media,
             "tts": self._do_tts,
+            "miot_power": self._do_miot_power,
         }
 
     # ------------------------------------------------------------------
@@ -181,6 +184,34 @@ class TaskExecutor:
 
     def _do_tts(self, g: dict) -> TaskResult:
         return TaskResult(True, g.get("text", ""))
+
+    def _do_miot_power(self, g: dict) -> TaskResult:
+        """按名称控制米家设备的开关，如「米家打开客厅灯」。"""
+        if self.miot_factory is None:
+            return TaskResult(False, "未配置小米账号，无法控制米家设备")
+        name = str(g.get("dev") or "").strip()
+        if not name:
+            return TaskResult(False, "没有听出设备名")
+        on = bool(g.get("on", True))
+        try:
+            miio = self.miot_factory()
+            devices = miio.device_list_with_room()
+        except Exception as e:
+            return TaskResult(False, f"获取米家设备失败：{e}")
+
+        key = name.lower()
+        target = next((d for d in devices if key == (d.get("name") or "").lower()), None)
+        if target is None:
+            target = next((d for d in devices if key and key in (d.get("name") or "").lower()), None)
+        if target is None:
+            known = "、".join(str(d.get("name", "")) for d in devices[:12]) or "（账号下没有可用设备）"
+            return TaskResult(False, f"没找到米家设备「{name}」。已有：{known}")
+        try:
+            if miio.set_power(target["did"], on):
+                return TaskResult(True, f"已{'打开' if on else '关闭'}{target['name']}")
+        except Exception as e:
+            return TaskResult(False, f"控制 {target['name']} 失败：{e}")
+        return TaskResult(False, f"{target['name']} 似乎不支持开关控制")
 
 
 ACTIONS = list(TaskExecutor({})._actions.keys())

@@ -52,7 +52,7 @@ class XiaoaiBridge:
     def _ensure_clients(self) -> None:
         username = self.config.get("xiaomi.username", "")
         if not username:
-            raise RuntimeError("未配置小米账号，请先在「小爱控制」页登录")
+            raise RuntimeError("未配置小米账号，请先在「语音助手」页登录")
         if self.account is None or self.account.username != username:
             password = load_password(self.config)
             self.account = MiAccount(username, password, token_path=TOKEN_FILE,
@@ -140,6 +140,7 @@ class XiaoaiBridge:
             apps_list=data.get("apps", []),
             wol_hosts=data.get("wol", []),
             logger=self.on_log,
+            miot_factory=self.miot_client,
         )
         mt = match(query, data.get("tasks", []))
         if not mt:
@@ -155,8 +156,19 @@ class XiaoaiBridge:
                 self.on_log(f"TTS 播报失败: {e}")
 
     # ------------------------------------------------------------------
-    def test_tts(self, text: str = "MiPC Bridge 已连接，可以对我说关机或截屏") -> None:
+    def test_tts(self, text: str = "VoxNode 已连接，可以对我说关机或截屏") -> None:
         """测试链路：登录 + 找音箱 + 播报。"""
         self._ensure_clients()
         assert self.mina is not None
         self.mina.tts(self.device_id, text)
+
+    # ------------------------------------------------------------------
+    def miot_client(self):
+        """返回可用于控制米家设备的 MiIO 客户端（语音指令用）。"""
+        from .account import SID_MIIO
+        from .miot import MiIO
+        self._ensure_clients()
+        assert self.account is not None
+        if not self.account.is_logged_in(SID_MIIO):
+            self.account.login(SID_MIIO)
+        return MiIO(self.account)

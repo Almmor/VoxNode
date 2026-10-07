@@ -9,10 +9,24 @@ from typing import Any
 
 IS_WINDOWS = True  # 本项目当前仅支持 Windows
 
-APP_DIR = Path.home() / ".miiotpcapi"
+APP_DIR = Path.home() / ".voxnode"
 CONFIG_FILE = APP_DIR / "config.json"
 TOKEN_FILE = APP_DIR / "mi_token.json"
-SCREENSHOT_DIR = Path.home() / "Pictures" / "MiPCBridge"
+SCREENSHOT_DIR = Path.home() / "Pictures" / "VoxNode"
+
+# 旧版本（当时的名字是 MiPC Bridge）使用的配置目录，首次启动时自动迁移
+_LEGACY_APP_DIR = Path.home() / ".miiotpcapi"
+
+
+def _migrate_legacy_dir() -> None:
+    try:
+        if _LEGACY_APP_DIR.is_dir() and not APP_DIR.exists():
+            _LEGACY_APP_DIR.rename(APP_DIR)
+    except OSError:
+        pass
+
+
+_migrate_legacy_dir()
 
 DEFAULT_TASKS: list[dict[str, Any]] = [
     {
@@ -87,6 +101,22 @@ DEFAULT_TASKS: list[dict[str, Any]] = [
         "action": "wol",
         "reply": "已发送唤醒包到{host}",
     },
+    {
+        "id": "miot-on",
+        "enabled": True,
+        "patterns": ["米家打开(?P<dev>.+)", "米家开(?P<dev>.+)"],
+        "action": "miot_power",
+        "params": {"on": True},
+        "reply": "已打开米家设备{dev}",
+    },
+    {
+        "id": "miot-off",
+        "enabled": True,
+        "patterns": ["米家关闭(?P<dev>.+)", "米家关(?P<dev>.+)"],
+        "action": "miot_power",
+        "params": {"on": False},
+        "reply": "已关闭米家设备{dev}",
+    },
 ]
 
 DEFAULT_APPS: list[dict[str, Any]] = [
@@ -115,6 +145,18 @@ DEFAULTS: dict[str, Any] = {
     "tasks": deepcopy(DEFAULT_TASKS),
     "apps": deepcopy(DEFAULT_APPS),
     "wol": [],
+    # 米家指令通道：用米家设备属性控制本机
+    "mijia_channel": {
+        "enabled": False,
+        "poll_interval": 3.0,
+        "device": {"did": "", "name": ""},
+        "prop": {"siid": 2, "piid": 1, "label": "开关"},
+        "mappings": [
+            {"value": "1", "action": "shutdown", "params": {"delay": 60}, "reply": "电脑将在60秒后关机"},
+            {"value": "0", "action": "lock", "params": {}, "reply": "已锁定电脑"},
+        ],
+        "reset_value": None,
+    },
 }
 
 
@@ -128,7 +170,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 class Config:
-    """线程安全的配置对象，保存到 ~/.miiotpcapi/config.json。"""
+    """线程安全的配置对象，保存到 ~/.voxnode/config.json。"""
 
     def __init__(self, path: Path = CONFIG_FILE):
         self.path = path

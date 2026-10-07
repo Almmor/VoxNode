@@ -168,3 +168,95 @@ def test_password_roundtrip(config):
     assert secure.load_password(config) == secret
     secure.clear_password(config)
     assert secure.load_password(config) == ""
+
+
+# -- 米家（MIoT / MiIO）------------------------------------------------------
+def test_miot_sign_structure():
+    import base64
+    from miiotpcapi.xiaomi.miot import sign_data, sign_nonce
+
+    ssecurity = base64.b64encode(b"0123456789abcdef").decode()
+    nonce = base64.b64encode(b"abcdefgh" + (0).to_bytes(4, "big")).decode()
+    assert len(sign_nonce(ssecurity, nonce)) > 0
+
+    signed = sign_data("/home/device_list", '{"a": 1}', ssecurity)
+    assert set(signed) == {"data", "nonce", "signature"}
+    assert signed["data"] == '{"a": 1}'
+    # 签名应为合法的 base64
+    base64.b64decode(signed["signature"])
+    base64.b64decode(signed["nonce"])
+
+
+def test_power_iid_convention():
+    from miiotpcapi.xiaomi.miot import POWER_IID
+    assert POWER_IID == (2, 1)
+
+
+def test_channel_value_matches():
+    from miiotpcapi.xiaomi.channel import value_matches
+
+    assert value_matches(True, "1")
+    assert value_matches(True, "on")
+    assert value_matches(False, "0")
+    assert value_matches(False, "off")
+    assert value_matches(30, "30")
+    assert value_matches("30", "30")
+    assert not value_matches(2, "1")
+    assert not value_matches(None, "1")
+
+
+def test_qrlogin_module_contract():
+    from miiotpcapi.xiaomi import qrlogin as qr
+
+    login = qr.XiaomiQrLogin(sid="mijia")
+    assert login.status == qr.WAITING
+    # 未发起会话时轮询应返回失败而不是抛异常
+    login.lp = ""
+    assert login.poll() == qr.FAILED
+
+
+def test_default_tasks_include_miot():
+    from miiotpcapi.config import DEFAULT_TASKS
+    from miiotpcapi.tasks import ACTIONS
+
+    actions = {r["action"] for r in DEFAULT_TASKS}
+    assert "miot_power" in actions
+    assert "miot_power" in ACTIONS
+
+
+def test_miot_power_requires_account(config):
+    from miiotpcapi.tasks import MatchedTask, TaskExecutor
+
+    executor = TaskExecutor()
+    result = executor.execute(MatchedTask(
+        rule={"action": "miot_power", "params": {"on": True}}, groups={"dev": "客厅灯"}))
+    assert result.ok is False
+    assert "小米账号" in result.reply
+
+
+def test_default_mijia_channel_config(config):
+    channel = config.get("mijia_channel")
+    assert channel["enabled"] is False
+    assert channel["prop"]["siid"] == 2
+    assert isinstance(channel["mappings"], list)
+
+
+# -- 改名相关的向后兼容 -------------------------------------------------------
+def test_config_dir_is_voxnode():
+    from miiotpcapi.config import APP_DIR
+
+    assert APP_DIR.name == ".voxnode"
+
+
+def test_autostart_value_name():
+    from miiotpcapi.core import autostart
+
+    assert autostart._VALUE_NAME == "VoxNode"
+    assert "MiPCBridge" in autostart._LEGACY_VALUE_NAMES
+
+
+def test_secure_legacy_entropy_defined():
+    from miiotpcapi import secure
+
+    assert secure._entropy == b"VoxNode-v1"
+    assert secure._legacy_entropy == b"MiPCBridge-v1"

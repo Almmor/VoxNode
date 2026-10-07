@@ -1,4 +1,4 @@
-"""MiPC Bridge 启动引导（双击运行，无控制台窗口）。
+"""VoxNode 启动引导（双击运行，无控制台窗口）。
 
 用法：
   双击本文件，或执行：pythonw run_app.pyw [--setup] [--minimized]
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from mipcb.app import run  # noqa: E402
+from voxnode.app import run  # noqa: E402
 
 if __name__ == "__main__":
     raise SystemExit(run())

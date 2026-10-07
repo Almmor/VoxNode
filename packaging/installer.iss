@@ -1,21 +1,21 @@
 ﻿; ============================================================================
-;  MiPC Bridge 小爱电脑管家 —— Inno Setup 安装脚本
+;  VoxNode 声枢 —— Inno Setup 安装脚本
 ;
 ;  编译方式（在仓库根目录执行）：
 ;     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
 ;  或使用一键脚本： powershell -ExecutionPolicy Bypass -File packaging\build.ps1
 ;
-;  先决条件：已用 PyInstaller 生成 dist\MiPCBridge\（见 packaging\mipcb.spec）
+;  先决条件：已用 PyInstaller 生成 dist\VoxNode\（见 packaging\voxnode.spec）
 ; ============================================================================
 
-#define MyAppName "MiPC Bridge"
-#define MyAppNameZh "小爱电脑管家"
-#define MyAppVersion "0.1.0"
-#define MyAppPublisher "MiPC Bridge contributors"
+#define MyAppName "VoxNode"
+#define MyAppNameZh "声枢"
+#define MyAppVersion "0.2.0"
+#define MyAppPublisher "VoxNode contributors"
 #define MyAppURL "https://github.com/Almmor/miiotpcapi"
-#define MyAppExeName "MiPCBridge.exe"
+#define MyAppExeName "VoxNode.exe"
 ; 与软件内「开机自启」使用同一个注册表项，保证两处设置一致
-#define RunValueName "MiPCBridge"
+#define RunValueName "VoxNode"
 
 [Setup]
 ; 每个应用唯一的 AppId，升级时保持不变
@@ -39,7 +39,7 @@ AllowNoIcons=yes
 
 ; 产物输出
 OutputDir=..\dist
-OutputBaseFilename=MiPCBridge-Setup-{#MyAppVersion}
+OutputBaseFilename=VoxNode-Setup-{#MyAppVersion}
 SetupIconFile=app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName} {#MyAppNameZh}
@@ -66,8 +66,8 @@ Name: "autostart"; Description: "开机时自动启动（登录后最小化运�
 
 [Files]
 ; 打包 PyInstaller 的全部产物
-Source: "..\dist\MiPCBridge\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\dist\MiPCBridge\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\VoxNode\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\VoxNode\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -84,13 +84,16 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     ValueType: string; ValueName: "{#RunValueName}"; \
     ValueData: """{app}\{#MyAppExeName}"" --minimized"; \
     Flags: uninsdeletevalue; Tasks: autostart
+; 清理旧品牌名（MiPC Bridge）可能残留的自启动项
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
+    ValueType: string; ValueName: "MiPCBridge"; Flags: deletevalue
 
 [Run]
 Description: "立即启动 {#MyAppName} {#MyAppNameZh}"; Filename: "{app}\{#MyAppExeName}"; \
     Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; 仅清理安装目录下可能产生的运行时文件，不动用户配置目录（%USERPROFILE%\.miiotpcapi）
+; 仅清理安装目录下可能产生的运行时文件，不动用户配置目录（%USERPROFILE%\.voxnode）
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Code]

@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    MiPC Bridge 一键构建脚本：生成图标 -> PyInstaller 打包 -> exe 自检 -> 生成安装程序。
+    VoxNode 一键构建脚本：生成图标 -> PyInstaller 打包 -> exe 自检 -> 生成安装程序。
 
 .DESCRIPTION
     在仓库根目录执行：
@@ -92,18 +92,18 @@ if ($LASTEXITCODE -ne 0) { throw "图标生成失败" }
 
 # ---------------------------------------------------------------- 打包 exe
 Write-Step "PyInstaller 打包（onedir 模式）"
-$distApp = Join-Path $Root "dist\MiPCBridge"
+$distApp = Join-Path $Root "dist\VoxNode"
 if (Test-Path $distApp) { Remove-Item $distApp -Recurse -Force }
 
 Push-Location $Root
 try {
-    & $Py -m PyInstaller (Join-Path $PackagingDir "mipcb.spec") --noconfirm --distpath dist
+    & $Py -m PyInstaller (Join-Path $PackagingDir "voxnode.spec") --noconfirm --distpath dist
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败" }
 } finally {
     Pop-Location
 }
 
-$exePath = Join-Path $distApp "MiPCBridge.exe"
+$exePath = Join-Path $distApp "VoxNode.exe"
 if (-not (Test-Path $exePath)) { throw "未找到产物 $exePath" }
 $sizeMb = [math]::Round(((Get-ChildItem $distApp -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1)
 Write-Ok "产物: $exePath （总计 $sizeMb MB）"
@@ -111,7 +111,7 @@ Write-Ok "产物: $exePath （总计 $sizeMb MB）"
 # ---------------------------------------------------------------- 自检
 if (-not $SkipTests) {
     Write-Step "运行打包产物自检"
-    $report = Join-Path $env:TEMP "mipcb_selftest.txt"
+    $report = Join-Path $env:TEMP "voxnode_selftest.txt"
     if (Test-Path $report) { Remove-Item $report -Force }
     $proc = Start-Process -FilePath $exePath -ArgumentList "--selftest" -PassThru -Wait
     if (-not (Test-Path $report)) { throw "自检未生成报告，退出码 $($proc.ExitCode)" }
@@ -134,7 +134,7 @@ if (-not $SkipInstaller) {
         Write-Ok "ISCC: $iscc"
         & $iscc (Join-Path $PackagingDir "installer.iss")
         if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
-        $setup = Get-ChildItem (Join-Path $Root "dist") -Filter "MiPCBridge-Setup-*.exe" |
+        $setup = Get-ChildItem (Join-Path $Root "dist") -Filter "VoxNode-Setup-*.exe" |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($setup) {
             $setupMb = [math]::Round($setup.Length / 1MB, 1)

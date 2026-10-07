@@ -1,7 +1,7 @@
 """首次引导式部署向导。
 
-流程：欢迎与环境自检 → 小米账号登录 → 选择小爱音箱 → 语音指令预览 →
-完成设置（开机自启 / 最小化启动 / 立即启动桥接）。
+流程：欢迎与环境自检 → 登录小米账号（扫码 / 密码）→ 选择音箱 →
+语音指令预览 → 完成设置（开机自启 / 最小化启动 / 立即启动）。
 """
 from __future__ import annotations
 
@@ -11,18 +11,18 @@ import sys
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWizard, QWizardPage,
 )
 
 from miiotpcapi import APP_NAME, APP_NAME_ZH, __version__
 from miiotpcapi.config import Config, DEFAULT_TASKS, TOKEN_FILE
 from miiotpcapi.core import autostart
-from miiotpcapi.secure import clear_password, load_password, save_password
+from miiotpcapi.secure import load_password
 from miiotpcapi.xiaomi.account import MiAccount
 from miiotpcapi.xiaomi.mina import MiNA
 
-from .bridge_signals import OtpBridge, ask_otp_from_thread
+from .login import LoginDialog
 from .ui import card
 from .workers import run_async
 
@@ -102,95 +102,65 @@ class AccountPage(QWizardPage):
         super().__init__()
         self.config = config
         self.setTitle("第 1 步 · 登录小米账号")
-        self.setSubTitle("用于绑定你的小爱音箱；密码经 DPAPI 加密后只保存在本机。")
+        self.setSubTitle("用于绑定你的音箱与米家设备；推荐扫码登录，无需在本地保存密码。")
         lay = QVBoxLayout(self)
-        self.user = QLineEdit(config.get("xiaomi.username", ""))
-        self.user.setPlaceholderText("手机号或邮箱")
-        self.pwd = QLineEdit()
-        self.pwd.setEchoMode(QLineEdit.EchoMode.Password)
-        self.pwd.setPlaceholderText("小米账号密码")
-        self.save_chk = QCheckBox("记住密码（推荐，重启后无需重复登录）")
-        self.save_chk.setChecked(True)
 
-        fields = QHBoxLayout()
-        col1 = QVBoxLayout()
-        col1.addWidget(QLabel("账号"))
-        col1.addWidget(self.user)
-        col2 = QVBoxLayout()
-        col2.addWidget(QLabel("密码"))
-        col2.addWidget(self.pwd)
-        fields.addLayout(col1, 1)
-        fields.addLayout(col2, 1)
-        lay.addLayout(fields)
-        lay.addWidget(self.save_chk)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        lay.addWidget(self.status)
 
         row = QHBoxLayout()
-        self.btn_login = QPushButton("登录")
+        self.btn_login = QPushButton("登录小米账号…")
         self.btn_login.setProperty("kind", "primary")
-        self.btn_login.clicked.connect(self._login)
-        self.btn_skip = QPushButton("跳过（稍后在「小爱控制」页配置）")
-        self.btn_skip.clicked.connect(lambda: self.setProperty("skipped", True))
+        self.btn_login.clicked.connect(self._open_login)
+        self.btn_skip = QPushButton("跳过（稍后在「语音助手」页配置）")
+        self.btn_skip.clicked.connect(self._skip)
         row.addWidget(self.btn_login)
         row.addStretch(1)
         row.addWidget(self.btn_skip)
         lay.addLayout(row)
 
-        self.status = QLabel("登录后才能选择音箱。也可以跳过，稍后再配置。")
-        self.status.setProperty("muted", True)
-        self.status.setWordWrap(True)
-        lay.addWidget(self.status)
+        tip = QLabel(
+            "扫码登录：打开米家 App → 我的 → 右上角「扫一扫」扫描二维码即可，"
+            "不会在本机保存密码。\n也可以切换到「账号密码」输入小米账号登录。"
+        )
+        tip.setProperty("muted", True)
+        tip.setWordWrap(True)
+        lay.addWidget(tip)
         lay.addStretch(1)
-        self._logged_in = False
+        self._refresh()
 
     def isComplete(self) -> bool:
-        return self._logged_in or self.property("skipped") is True
+        return self._logged_in() or self.property("skipped") is True
 
-    def _login(self) -> None:
-        user = self.user.text().strip()
-        pwd = self.pwd.text()
-        if not user or not pwd:
-            self.status.setText("请填写账号和密码。")
-            return
-        self.btn_login.setEnabled(False)
-        self.status.setText("登录中，若触发安全验证会弹出验证码输入框…")
-        otp_bridge = OtpBridge(self)
+    def _logged_in(self) -> bool:
+        return bool(self.config.get("xiaomi.username", "")) and TOKEN_FILE.is_file()
 
-        def otp(method: str) -> str:
-            return ask_otp_from_thread(otp_bridge, method)
+    def _refresh(self) -> None:
+        if self._logged_in():
+            kind = "扫码" if self.config.get("xiaomi.login_type") == "qr" else "账号密码"
+            self.status.setText(f"已登录（{kind}）：{self.config.get('xiaomi.username', '')}")
+        else:
+            self.status.setText("尚未登录。点击下方按钮打开登录窗口。")
+        self.completeChanged.emit()
 
-        def do_login():
-            account = MiAccount(user, pwd, token_path=TOKEN_FILE, otp_callback=otp)
-            ok = account.login()
-            if ok and self.save_chk.isChecked():
-                save_password(self.config, pwd)
-            elif ok:
-                clear_password(self.config)
-            return ok
+    def _skip(self) -> None:
+        self.setProperty("skipped", True)
+        self.completeChanged.emit()
 
-        def on_done(ok):
-            self.btn_login.setEnabled(True)
-            if ok:
-                self.config.set("xiaomi.username", user, save=False)
-                self.config.save()
-                self._logged_in = True
-                self.status.setText("登录成功！")
-                self.completeChanged.emit()
-            else:
-                self.status.setText("登录失败，请检查账号密码。")
-
-        def on_fail(err):
-            self.btn_login.setEnabled(True)
-            self.status.setText(f"登录失败：{err}")
-
-        run_async(self, do_login, on_done, on_fail)
+    def _open_login(self) -> None:
+        dlg = LoginDialog(self, self.config, self.config.get("xiaomi.username", ""))
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.setProperty("skipped", False)
+            self._refresh()
 
 
 class SpeakerPage(QWizardPage):
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
-        self.setTitle("第 2 步 · 选择小爱音箱")
-        self.setSubTitle("小爱收到的语音指令会从这台音箱轮询获取。")
+        self.setTitle("第 2 步 · 选择音箱")
+        self.setSubTitle("音箱收到的语音指令会从这台设备轮询获取。")
         lay = QVBoxLayout(self)
         self.combo = QComboBox()
         self.combo.setMinimumHeight(36)
@@ -253,7 +223,7 @@ class CommandsPage(QWizardPage):
         super().__init__()
         self.config = config
         self.setTitle("第 3 步 · 语音指令一览")
-        self.setSubTitle("部署完成后，对小爱说出下面的指令即可控制电脑；稍后可在「小爱控制」页自定义。")
+        self.setSubTitle("部署完成后，对音箱说出下面的指令即可控制电脑；稍后可在「语音助手」页自定义。")
         lay = QVBoxLayout(self)
         table = QTableWidget(0, 2)
         table.setHorizontalHeaderLabels(["对小爱说", "电脑执行"])
@@ -264,7 +234,8 @@ class CommandsPage(QWizardPage):
             "shutdown": "延迟 60 秒关机（可说“取消关机”撤销）", "restart": "延迟 60 秒重启",
             "lock": "锁定电脑", "sleep": "电脑睡眠", "cancel_shutdown": "取消关机 / 重启任务",
             "screenshot": "截图并保存", "report_status": "播报电脑状态",
-            "open_app": "打开已配置的应用", "close_app": "关闭应用", "wol": "网络唤醒指定主机",
+            "open_app": "打开已配置的应用", "close_app": "关闭应用", "wol": "唤醒局域网内其他电脑",
+            "miot_power": "打开 / 关闭指定的米家设备",
         }
         for rule in DEFAULT_TASKS:
             r = table.rowCount()
@@ -285,7 +256,7 @@ class FinishPage(QWizardPage):
         self.setTitle("第 4 步 · 完成部署")
         self.setSubTitle("按需勾选，点「完成」保存设置。")
         lay = QVBoxLayout(self)
-        self.chk_autostart = QCheckBox("开机自动启动 MiPC Bridge")
+        self.chk_autostart = QCheckBox("开机自动启动 VoxNode")
         lay.addWidget(self.chk_autostart)
         self.chk_minimized = QCheckBox("启动时最小化到系统托盘")
         lay.addWidget(self.chk_minimized)

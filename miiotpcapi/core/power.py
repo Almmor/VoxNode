@@ -16,13 +16,13 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
-def shutdown(delay: int = 0, comment: str = "MiPC Bridge 关机") -> subprocess.CompletedProcess:
+def shutdown(delay: int = 0, comment: str = "VoxNode 关机") -> subprocess.CompletedProcess:
     """延迟 delay 秒关机，期间可用 cancel() 撤销。"""
     return _run(["shutdown", "/s", "/t", str(int(delay)), "/c", comment])
 
 
 def restart(delay: int = 0) -> subprocess.CompletedProcess:
-    return _run(["shutdown", "/r", "/t", str(int(delay)), "/c", "MiPC Bridge 重启"])
+    return _run(["shutdown", "/r", "/t", str(int(delay)), "/c", "VoxNode 重启"])
 
 
 def cancel() -> subprocess.CompletedProcess:
@@ -53,7 +53,7 @@ def schedule_at(hhmm: str) -> subprocess.CompletedProcess:
     if when <= now:
         when += timedelta(days=1)
     delay = int((when - now).total_seconds())
-    return shutdown(delay, f"MiPC Bridge 定时关机 {hhmm}")
+    return shutdown(delay, f"VoxNode 定时关机 {hhmm}")
 
 
 ACTIONS = {

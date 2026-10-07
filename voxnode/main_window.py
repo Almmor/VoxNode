@@ -12,15 +12,17 @@ from miiotpcapi import APP_NAME, APP_NAME_ZH, __version__
 from miiotpcapi.config import Config
 from miiotpcapi.xiaomi.bridge import XiaoaiBridge
 
-from .bridge_signals import BridgeSignals
+from .bridge_signals import BridgeSignals, ChannelSignals
 from .pages.apps_page import AppsPage
+from .pages.assistant_page import AssistantPage
 from .pages.dashboard_page import DashboardPage
+from .pages.mijia_channel_page import MijiaChannelPage
+from .pages.mijia_page import MijiaPage
 from .pages.power_page import PowerPage
 from .pages.processes_page import ProcessesPage
 from .pages.screenshot_page import ScreenshotPage
 from .pages.settings_page import SettingsPage
 from .pages.wol_page import WolPage
-from .pages.xiaomi_page import XiaoaiPage
 
 
 def make_app_icon() -> QIcon:
@@ -47,7 +49,9 @@ NAV = [
     ("进程管理", "processes"),
     ("应用任务", "apps"),
     ("网络唤醒", "wol"),
-    ("小爱控制", "xiaomi"),
+    ("米家设备", "mijia"),
+    ("米家遥控", "mijia_channel"),
+    ("语音助手", "assistant"),
     ("设置", "settings"),
 ]
 
@@ -57,11 +61,14 @@ class MainWindow(QMainWindow):
     stop_requested = pyqtSignal()
 
     def __init__(self, config: Config, bridge: XiaoaiBridge, signals: BridgeSignals,
+                 channel=None, channel_signals: ChannelSignals | None = None,
                  start_minimized: bool = False):
         super().__init__()
         self.config = config
         self.bridge = bridge
         self.signals = signals
+        self.channel = channel
+        self.channel_signals = channel_signals or ChannelSignals(self)
         self._first_close = True
 
         self.setWindowTitle(f"{APP_NAME} — {APP_NAME_ZH} v{__version__}")
@@ -116,7 +123,9 @@ class MainWindow(QMainWindow):
             "processes": ProcessesPage(config),
             "apps": AppsPage(config),
             "wol": WolPage(config),
-            "xiaomi": XiaoaiPage(config, bridge, signals),
+            "mijia": MijiaPage(config),
+            "mijia_channel": MijiaChannelPage(config, self.channel, self.channel_signals),
+            "assistant": AssistantPage(config, bridge, signals),
             "settings": SettingsPage(config),
         }
         for _, key in NAV:

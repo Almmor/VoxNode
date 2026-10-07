@@ -33,8 +33,14 @@ UA_OTP = (
     "(KHTML, like Gecko) Mobile/15E148 MiHome/11.3.203"
 )
 UA_MINA = "MiHome/6.0.103 (com.xiaomi.mihome; build:6.0.103.1; iOS 14.4.0) Alamofire/6.0.103 MICO/iOSApp/appStore/6.0.103"
+UA_MIIO = (
+    "iOS-14.4-6.0.103-iPhone12,3--D7744744F7AF32F0544445285880DD63E47D9BE9-"
+    "8816080-84A3F44E137B71AE-iPhone"
+)
 
-SID_MINA = "micoapi"  # MiNA（小爱音箱）使用的 service id
+SID_MINA = "micoapi"      # MiNA（小爱音箱）服务 id
+SID_MIIO = "xiaomiio"     # 米家 / MIoT 设备云服务 id
+SID_MIJIA = "mijia"       # 米家 App 体系（扫码登录可选）
 
 
 class XiaomiAuthError(Exception):
@@ -96,6 +102,8 @@ class MiAccount:
     def login(self, sid: str = SID_MINA) -> bool:
         """登录并缓存 serviceToken。需要验证码时通过 otp_callback 获取。"""
         with self._lock:
+            if not self.password and not self.token.get("passToken"):
+                raise XiaomiAuthError("未保存密码，请使用「扫码登录」或重新输入账号密码")
             if not self.token.get("deviceId"):
                 self.token["deviceId"] = _rand(16).upper()
             try:
@@ -128,6 +136,33 @@ class MiAccount:
                 self.token = {}
                 self._save_token()
                 raise
+
+    def login_with_pass_token(self, sid: str, pass_token: str, user_id: str,
+                              device_id: str = "") -> bool:
+        """用 passToken 换取指定 sid 的 serviceToken。
+
+        扫码登录只会拿到一次 passToken，之后可用它免扫码换取各业务
+        sid（micoapi / xiaomiio）的独立令牌。
+        """
+        with self._lock:
+            if device_id:
+                self.token["deviceId"] = device_id
+            self.token.setdefault("deviceId", _rand(16).upper())
+            self.token["userId"] = user_id
+            self.token["passToken"] = pass_token
+            resp = self._service_login(f"serviceLogin?sid={sid}&_json=true")
+            if resp.get("code") != 0:
+                raise XiaomiAuthError(f"passToken 换取 sid={sid} 令牌失败: {resp}")
+            for key in ("location", "nonce", "ssecurity"):
+                if key not in resp:
+                    raise XiaomiAuthError(f"换取令牌响应缺少 {key}: {resp}")
+            service_token = self._security_token_service(
+                resp["location"], resp["nonce"], resp["ssecurity"])
+            self.token["userId"] = resp.get("userId", user_id)
+            self.token["passToken"] = resp.get("passToken", pass_token)
+            self.token[sid] = [resp["ssecurity"], service_token]
+            self._save_token(self.token)
+            return True
 
     def _service_login(self, uri: str, data: Optional[dict] = None) -> dict:
         headers = {"User-Agent": UA_LOGIN}
@@ -206,38 +241,55 @@ class MiAccount:
     def is_logged_in(self, sid: str = SID_MINA) -> bool:
         return bool(self.token.get(sid)) and bool(self.token.get("userId"))
 
-    def request(self, url: str, data: Optional[dict] = None, headers: Optional[dict] = None,
-                relogin: bool = True) -> dict:
-        """带登录态的 API 请求；401/鉴权失效时自动重登一次。"""
+    def auth_cookies(self, sid: str) -> dict:
+        """确保该 sid 已登录，返回带 serviceToken 的 cookie。"""
+        if not self.is_logged_in(sid) and not self.login(sid):
+            raise XiaomiAuthError(f"登录失败 (sid={sid})")
+        return {
+            "userId": str(self.token["userId"]),
+            "serviceToken": self.token[sid][1],
+        }
+
+    def raw_request(self, sid: str, url: str, data=None, headers: Optional[dict] = None,
+                    sign=None, relogin: bool = True) -> dict:
+        """底层请求，返回原始 JSON（不校验 code 字段）。
+
+        sign 可为 ``callable(data, token, cookies, headers) -> content``，
+        用于 MiIO / MIoT 这类需要 HMAC 签名并补充 cookie、header 的接口。
+        """
         with self._lock:
-            if not self.is_logged_in() and not self.login():
-                raise XiaomiAuthError("登录失败")
-            cookies = {
-                "userId": str(self.token["userId"]),
-                "serviceToken": self.token[SID_MINA][1],
-            }
-            method = "GET" if data is None else "POST"
-            r = self._session.request(method, url, data=data, cookies=cookies,
-                                     headers=headers or {"User-Agent": UA_MINA}, timeout=30)
-            if r.status_code == 401:
-                if relogin:
-                    self.token = {}
-                    self._save_token()
-                    return self.request(url, data, headers, relogin=False)
-                raise XiaomiAuthError(f"鉴权失败(HTTP 401): {url}")
+            cookies = self.auth_cookies(sid)
+            hdrs = {"User-Agent": UA_MINA}
+            if headers:
+                hdrs.update(headers)
+            content = data
+            if callable(sign):
+                content = sign(data, self.token, cookies, hdrs)
+            method = "GET" if content is None else "POST"
+            r = self._session.request(method, url, data=content, cookies=cookies,
+                                      headers=hdrs, timeout=30)
+            if r.status_code == 401 and relogin:
+                self.token = {}
+                self._save_token()
+                return self.raw_request(sid, url, data, headers, sign, relogin=False)
             try:
-                resp = r.json()
+                return r.json()
             except ValueError:
                 raise XiaomiAuthError(f"接口响应不是 JSON: {url} -> {r.text[:200]}")
-            if resp.get("code", -1) == 0:
-                return resp
-            if "auth" in str(resp.get("message", "")).lower():
-                if relogin:
-                    self.token = {}
-                    self._save_token()
-                    return self.request(url, data, headers, relogin=False)
-                raise XiaomiAuthError(f"鉴权失败: {url} -> {resp.get('message')}")
-            raise XiaomiAuthError(f"接口返回错误: {url} -> {resp}")
+
+    def request(self, url: str, data=None, headers: Optional[dict] = None,
+                relogin: bool = True, sid: str = SID_MINA) -> dict:
+        """MiNA 风格请求：要求 code == 0，否则抛出异常。"""
+        resp = self.raw_request(sid, url, data, headers, relogin=relogin)
+        if resp.get("code", -1) == 0:
+            return resp
+        if "auth" in str(resp.get("message", "")).lower():
+            if relogin:
+                self.token = {}
+                self._save_token()
+                return self.request(url, data, headers, relogin=False, sid=sid)
+            raise XiaomiAuthError(f"鉴权失败: {url} -> {resp.get('message')}")
+        raise XiaomiAuthError(f"接口返回错误: {url} -> {resp}")
 
 
 def logout(token_path: Path) -> None:

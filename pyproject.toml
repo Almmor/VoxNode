@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "miiotpcapi"
-version = "0.1.0"
-description = "将 Windows 电脑接入小米生态的 Python 库与图形控制软件（MiPC Bridge / 小爱电脑管家）"
+version = "0.2.0"
+description = "将 Windows 电脑接入小米生态的 Python 库与图形控制软件（VoxNode / 声枢）"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-authors = [{ name = "MiPC Bridge contributors" }]
+authors = [{ name = "VoxNode contributors" }]
 keywords = ["xiaomi", "miot", "xiaoai", "mina", "pc-control", "wol", "gui", "pyqt6"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -41,10 +41,10 @@ Repository = "https://github.com/Almmor/miiotpcapi"
 "Bug Tracker" = "https://github.com/Almmor/miiotpcapi/issues"
 
 [project.scripts]
-mipcb = "mipcb.app:run"
+voxnode = "voxnode.app:run"
 
 [project.gui-scripts]
-mipcbw = "mipcb.app:run"
+voxnodew = "voxnode.app:run"
 
 [tool.setuptools]
-packages = ["miiotpcapi", "miiotpcapi.core", "miiotpcapi.xiaomi", "mipcb", "mipcb.pages"]
+packages = ["miiotpcapi", "miiotpcapi.core", "miiotpcapi.xiaomi", "voxnode", "voxnode.pages"]

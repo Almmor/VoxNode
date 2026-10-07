@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配置：MiPC Bridge 小爱电脑管家。
+"""PyInstaller 打包配置：VoxNode 声枢。
 
 用法（在仓库根目录执行）：
-    pyinstaller packaging/mipcb.spec --noconfirm
+    pyinstaller packaging/voxnode.spec --noconfirm
 
-产物：dist/MiPCBridge/MiPCBridge.exe（onedir 模式，启动更快、兼容性更好）
+产物：dist/VoxNode/VoxNode.exe（onedir 模式，启动更快、兼容性更好）
 """
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from pathlib import Path
 PKG_DIR = Path(SPECPATH).resolve()
 ROOT = PKG_DIR.parent
 
-APP_NAME = "MiPCBridge"
+APP_NAME = "VoxNode"
 
 # mss 按平台动态导入后端，需显式声明
 hiddenimports = [

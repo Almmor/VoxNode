@@ -7,7 +7,9 @@ import ctypes.wintypes as wt
 
 from .config import Config
 
-_entropy = b"MiPCBridge-v1"
+_entropy = b"VoxNode-v1"
+# 旧版本（当时的名字是 MiPC Bridge）加密时使用的 entropy，用于解密历史数据
+_legacy_entropy = b"MiPCBridge-v1"
 
 
 class _DATA_BLOB(ctypes.Structure):
@@ -36,13 +38,15 @@ def protect(data: bytes) -> bytes:
 
 
 def unprotect(data: bytes) -> bytes:
-    out = _DATA_BLOB()
-    if not ctypes.windll.crypt32.CryptUnprotectData(
-        ctypes.byref(_blob(data)), None, ctypes.byref(_blob(_entropy)),
-        None, None, 0, ctypes.byref(out),
-    ):
-        raise OSError("CryptUnprotectData failed")
-    return _unblob(out)
+    """解密；兼容旧品牌名时期的密文。"""
+    for entropy in (_entropy, _legacy_entropy):
+        out = _DATA_BLOB()
+        if ctypes.windll.crypt32.CryptUnprotectData(
+            ctypes.byref(_blob(data)), None, ctypes.byref(_blob(entropy)),
+            None, None, 0, ctypes.byref(out),
+        ):
+            return _unblob(out)
+    raise OSError("CryptUnprotectData failed")
 
 
 def save_password(config: Config, password: str) -> None:

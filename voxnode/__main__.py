@@ -1,4 +1,4 @@
-"""模块入口：python -m mipcb [--setup] [--minimized]"""
+"""模块入口：python -m voxnode [--setup] [--minimized]"""
 from __future__ import annotations
 
 from .app import run

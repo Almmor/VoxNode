@@ -1,4 +1,4 @@
-"""深色主题：Fusion + QSS，小米橙点缀。"""
+"""深色主题：Fusion + QSS，科技橙点缀。"""
 from __future__ import annotations
 
 from PyQt6.QtGui import QColor, QPalette

@@ -60,7 +60,7 @@ class SettingsPage(QFrame):
         cfg_lay.addLayout(row2)
         lay.addWidget(cfg_card)
 
-        about = QLabel("MiPC Bridge © 2026 · 基于 miiotpcapi · MIT 开源")
+        about = QLabel("VoxNode © 2026 · 基于 miiotpcapi · MIT 开源")
         about.setProperty("muted", True)
         lay.addWidget(about)
         lay.addStretch(1)

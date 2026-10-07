@@ -32,7 +32,7 @@ def wake(name_or_mac: str, hosts: list[dict]) -> bool:
         if key in (h.get("name", "").lower(), h.get("mac", "").lower()):
             send(h["mac"], h.get("ip", "255.255.255.255"), int(h.get("port", 9) or 9))
             return True
-    raise KeyError(f"未找到名为「{name_or_mac}」的唤醒目标，请先在 MiPC Bridge 中添加")
+    raise KeyError(f"未找到名为「{name_or_mac}」的唤醒目标，请先在 VoxNode 中添加")
 
 
 def wake_armed_devices() -> list[str]:

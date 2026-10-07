@@ -1,8 +1,11 @@
 # 第三方开源声明 / Third-Party Notices
 
-本项目 `miiotpcapi` / `MiPC Bridge` 在实现小米账号登录、小爱音箱（MiNA）通信协议时，
-参考了以下开源项目的公开实现。这些项目均采用 **MIT 许可证**，
+本项目 `miiotpcapi` / `VoxNode` 在实现小米账号登录、音箱（MiNA）与米家（MIoT / MiIO）
+云接口时，参考了以下开源项目的公开实现。这些项目均采用 **MIT 许可证**，
 本项目据此保留其原始版权与许可声明，以符合 MIT 许可证「保留版权声明」的要求。
+
+> 另有部分能力（扫码登录、米家云接口字段）依据社区公开的协议说明与抓包分析实现，
+> **未拷贝任何第三方代码**；相关协议均属未公开接口，随时可能被官方调整。
 
 ---
 
@@ -14,9 +17,12 @@
 - 本项目参考内容：
   - 小米账号登录流程（`serviceLogin` → `serviceLoginAuth2` → `serviceToken` 换取）
   - OTP（短信 / 邮箱）两步验证流程
-  - MiNA 小爱音箱 API：设备列表、`text_to_speech`（TTS）、
+  - MiNA 音箱 API：设备列表、`text_to_speech`（TTS）、
     `nlp_result_get`（获取最近对话，用于语音指令轮询）
-- 对应文件：`miiotpcapi/xiaomi/account.py`、`miiotpcapi/xiaomi/mina.py`
+  - 米家云接口签名（`sign_nonce` / `sign_data`）与 `/home/device_list`、
+    `/miotspec/prop/get`、`/miotspec/prop/set`、`/miotspec/action` 路径组织
+- 对应文件：`miiotpcapi/xiaomi/account.py`、`miiotpcapi/xiaomi/mina.py`、
+  `miiotpcapi/xiaomi/miot.py`
 
 ```
 MIT License
