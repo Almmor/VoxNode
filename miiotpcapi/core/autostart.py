@@ -11,7 +11,17 @@ _VALUE_NAME = "MiPCBridge"
 
 
 def _command() -> str:
-    """生成自启动命令：pythonw run_app.pyw --minimized（保证在源码目录可用）。"""
+    """生成开机自启命令行。
+
+    三种运行形态：
+      1. 打包后的 exe（PyInstaller 冻结）——直接调用自身 exe
+      2. 源码目录存在 run_app.pyw ——用 pythonw 拉起启动引导（无控制台窗口）
+      3. 其它情况（已 pip 安装）——pythonw -m mipcb
+    """
+    if getattr(sys, "frozen", False):
+        # 打包形态：sys.executable 即 MiPCBridge.exe
+        return f'"{sys.executable}" --minimized'
+
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     exe = str(pythonw) if pythonw.exists() else sys.executable
     repo_root = Path(__file__).resolve().parents[2]

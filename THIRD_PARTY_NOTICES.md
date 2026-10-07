@@ -92,6 +92,17 @@ SOFTWARE.
 > 说明：PyQt6 以 GPL-3.0 授权，本项目自身代码为 MIT。若你计划闭源分发本软件，
 > 请将 GUI 依赖替换为 LGPL 授权的 PySide6，或遵循 PyQt6 的 GPL 条款。详见 README「许可证」一节。
 
+## 构建工具（仅打包时需要，不随软件分发）
+
+| 工具 | 许可证 | 用途 |
+|------|--------|------|
+| PyInstaller | GPL-2.0-or-later（含 bootloader 例外条款，允许打包闭源程序） | 生成独立 exe |
+| Inno Setup | Inno Setup License（允许自由使用与分发） | 生成安装程序 |
+
+`packaging/languages/ChineseSimplified.isl` 取自 Inno Setup 官方源码仓库
+[jrsoftware/issrc](https://github.com/jrsoftware/issrc)（`Files/Languages/`），
+遵循 Inno Setup 的许可条款随本项目一同分发，仅用于安装程序界面本地化。
+
 ## 商标声明
 
 「小米」「小爱同学」「米家」等为小米科技有限责任公司的商标。

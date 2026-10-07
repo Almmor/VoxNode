@@ -13,6 +13,25 @@
 
 ---
 
+## 下载与安装
+
+### 普通用户（推荐）
+
+从 [Releases](https://github.com/Almmor/miiotpcapi/releases) 下载 `MiPCBridge-Setup-x.y.z.exe` 并双击安装：
+
+- 按当前用户安装，**无需管理员权限**
+- 安装向导为简体中文，可自选「桌面快捷方式」与「开机自动启动」
+- 安装完成后勾选「立即启动」，**首次运行会自动进入引导式部署向导**
+- 卸载入口在「设置 → 应用」或开始菜单中，卸载会保留你的账号配置
+
+若不想安装，也可下载免安装版压缩包，解压后直接运行 `MiPCBridge.exe`。
+
+### 从源码运行（开发者）
+
+见下方「快速开始」。
+
+---
+
 ## 功能特性
 
 **小米生态接入**
@@ -244,11 +263,37 @@ miiotpcapi/
 │       ├── xiaomi_page.py      #     小爱控制
 │       └── settings_page.py    #     设置
 ├── run_app.pyw                 # 双击启动（无控制台窗口）
+├── packaging/                  # 打包与安装程序
+│   ├── build.ps1               #   一键构建（图标 → exe → 自检 → 安装包）
+│   ├── mipcb.spec              #   PyInstaller 配置
+│   ├── installer.iss           #   Inno Setup 安装脚本
+│   ├── make_icon.py            #   生成多尺寸 app.ico
+│   ├── version_info.txt        #   exe 版本资源
+│   └── languages/              #   安装器简体中文语言包
+├── tests/                      # pytest 单元测试
 ├── requirements.txt
 ├── pyproject.toml
+├── BUILD.md                    # 打包成 exe / 安装程序的完整说明
 ├── LICENSE
 └── THIRD_PARTY_NOTICES.md
 ```
+
+---
+
+## 打包与分发
+
+要把本项目打包成独立 exe 与 Windows 安装程序：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+产物：
+
+- `dist\MiPCBridge\` —— 免安装版目录（直接运行 `MiPCBridge.exe`）
+- `dist\MiPCBridge-Setup-<版本>.exe` —— 安装程序
+
+构建流程、安装程序行为、体积优化与常见问题详见 **[BUILD.md](BUILD.md)**。
 
 ---
 

@@ -23,8 +23,89 @@ def _set_dpi_aware() -> None:
         pass
 
 
+def _selftest() -> int:
+    """打包后的自检：离屏构建全部界面，结果写入文件并返回退出码。
+
+    用于验证 PyInstaller 产物是否完整（依赖、Qt 插件、资源均可用）。
+    """
+    import os
+    import tempfile
+    import traceback
+    from pathlib import Path
+
+    report = Path(tempfile.gettempdir()) / "mipcb_selftest.txt"
+    lines: list[str] = []
+    ok = True
+    try:
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"  # 必须在 QApplication 之前
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        apply_theme(app)
+        lines.append(f"frozen={getattr(sys, 'frozen', False)}")
+        lines.append(f"executable={sys.executable}")
+
+        # 核心库
+        from miiotpcapi.core import monitor, screenshot, sysinfo, wol
+        lines.append(f"hostname={sysinfo.hostname()}")
+        lines.append(f"cpu_cores={sysinfo.summary()['cpu_cores']}")
+        lines.append(f"mem_percent={monitor.memory()['percent']}")
+        _ = screenshot.list_monitors()
+        lines.append("screenshot.monitors=ok")
+        wol.normalize_mac("AA:BB:CC:DD:EE:FF")
+        lines.append("wol=ok")
+
+        # 指令引擎
+        from miiotpcapi.config import Config, DEFAULT_TASKS
+        from miiotpcapi.tasks import match
+        m = match("关机", DEFAULT_TASKS)
+        lines.append(f"match={m.rule['action'] if m else 'FAIL'}")
+
+        # 界面：主窗口 8 页 + 向导 5 页
+        tmp_cfg = Path(tempfile.gettempdir()) / "mipcb_selftest_cfg.json"
+        cfg = Config(path=tmp_cfg)
+        from miiotpcapi.xiaomi.bridge import XiaoaiBridge
+
+        from .bridge_signals import BridgeSignals
+        from .main_window import MainWindow
+        from .wizard import SetupWizard
+
+        signals = BridgeSignals()
+        bridge = XiaoaiBridge(cfg)
+        win = MainWindow(cfg, bridge, signals, start_minimized=True)
+        for i in range(win.nav.count()):
+            win.nav.setCurrentRow(i)
+            app.processEvents()
+        lines.append(f"main_window_pages={win.stack.count()}")
+        wiz = SetupWizard(cfg)
+        ids = wiz.pageIds()
+        for pid in ids:
+            wiz.setCurrentId(pid)
+            app.processEvents()
+        lines.append(f"wizard_pages={len(ids)}")
+        win.tray.hide()
+        win.hide()
+        if tmp_cfg.exists():
+            tmp_cfg.unlink()
+        lines.append("RESULT=PASS")
+    except Exception:
+        ok = False
+        lines.append("RESULT=FAIL")
+        lines.append(traceback.format_exc())
+
+    text = "\n".join(lines)
+    try:
+        report.write_text(text, "utf-8")
+    except Exception:
+        pass
+    print(text)
+    return 0 if ok else 1
+
+
 def run(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
+    if "--selftest" in argv:
+        return _selftest()
     force_wizard = "--setup" in argv
     first_run = False
 
